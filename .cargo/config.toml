@@ -1,0 +1,17 @@
+[env]
+# Support for NVIDIA GPU architectures from 2014-present
+# Architecture   GPU Series            Launch    Example GPUs
+# ----------------------------------------------------------------
+# 52 (Maxwell)   GeForce 900          2014      GTX 970, 980, 980 Ti
+# 60 (Pascal)    GeForce 1000         2016      GTX 1060, 1070, 1080
+# 61 (Pascal)    GeForce 1000         2016      GTX 1050, 1050 Ti
+# 70 (Volta)     Tesla/Quadro         2017      V100, Titan V
+# 75 (Turing)    GeForce RTX 2000     2018      RTX 2060, 2070, 2080
+# 86 (Ampere)    GeForce RTX 3000     2020      RTX 3060, 3070, 3080
+# 89 (Ada)       GeForce RTX 4000     2022      RTX 4060, 4070, 4080
+CUDA_ARCH = "52;60;61;70;75;86;89"
+
+[build]
+rustflags = [
+    "-C", "link-arg=-Wl,--allow-multiple-definition",
+] 

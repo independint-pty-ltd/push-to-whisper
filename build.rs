@@ -5,6 +5,14 @@ use std::path::Path;
 
 fn main() {
     println!("cargo:rerun-if-env-changed=CUDA_PATH");
+    println!("cargo:rerun-if-env-changed=CUDA_ARCH");
+    
+    // Get CUDA architectures from environment or use defaults
+    let cuda_arch = env::var("CUDA_ARCH").unwrap_or_else(|_| String::from("52;60;61;70;75;86;89"));
+    println!("cargo:warning=Building for CUDA architectures: {}", cuda_arch);
+    
+    // Set environment variable for whisper-rs to use
+    println!("cargo:rustc-env=CUDA_ARCH={}", cuda_arch);
     
     // Check if CUDA is available
     if let Ok(cuda_path) = env::var("CUDA_PATH") {
@@ -29,6 +37,13 @@ fn main() {
             if lib_path.exists() {
                 println!("cargo:rustc-link-search=native={}", lib_path.display());
             }
+            
+            // Set NVCC flags for multiple architectures
+            let arch_flags: Vec<String> = cuda_arch.split(';')
+                .map(|arch| format!("-gencode=arch=compute_{0},code=sm_{0}", arch))
+                .collect();
+            
+            println!("cargo:rustc-env=NVCC_FLAGS={}", arch_flags.join(" "));
         } else {
             println!("cargo:warning=CUDA_PATH is set but directory does not exist: {}", cuda_path.display());
         }
@@ -66,6 +81,12 @@ fn main() {
                     println!("cargo:rustc-link-search=native={}", lib_path.display());
                 }
                 
+                // Set NVCC flags for multiple architectures
+                let arch_flags: Vec<String> = cuda_arch.split(';')
+                    .map(|arch| format!("-gencode=arch=compute_{0},code=sm_{0}", arch))
+                    .collect();
+                
+                println!("cargo:rustc-env=NVCC_FLAGS={}", arch_flags.join(" "));
                 break;
             }
         }
