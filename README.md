@@ -13,6 +13,7 @@ A fast, private, and efficient push-to-speak transcription tool that uses OpenAI
 - **Cursor Position Insertion**: Transcribed text appears at your cursor location
 - **Complete Privacy**: 100% local processing, no data sent to external servers
 - **GPU Acceleration**: CUDA support for faster transcription when available
+- **Automatic CPU Fallback**: Gracefully falls back to CPU if CUDA is unavailable or fails
 - **Clipboard Preservation**: Automatically saves and restores clipboard content
 - **Multiple Text Insertion Methods**: Compatible with various applications
 - **Audio Feedback**: Optional beep sounds for recording start/stop
@@ -45,6 +46,8 @@ push-to-whisper.exe --no-tray    # Disable system tray
 push-to-whisper.exe --no-visual  # Disable visual feedback
 push-to-whisper.exe --model-size tiny.en  # Use a smaller, faster model
 push-to-whisper.exe -m medium.en  # Short form for model size option
+push-to-whisper.exe --force-cpu  # Force CPU mode (disable GPU acceleration)
+push-to-whisper.exe --no-gpu     # Alternative syntax for forcing CPU mode
 ```
 
 ## Configuration
@@ -79,6 +82,14 @@ long_press_threshold = 500
 # Headphone keepalive interval in seconds (prevents wireless headphones from disconnecting)
 # Set to 0 to disable
 headphone_keepalive_interval = 30
+
+# Debug recording (true/false)
+# Saves audio to debug_recording.wav for troubleshooting
+enable_debug_recording = false
+
+# Force CPU mode (true/false)
+# Set to true to disable GPU acceleration and use CPU only
+force_cpu = false
 ```
 
 You can edit this file with any text editor to change the default behavior. Command line arguments will always override settings in the configuration file.
@@ -99,7 +110,21 @@ push-to-whisper.exe --hk 0  # Short form to disable
 # Enable or disable debug recording (saves audio to debug_recording.wav)
 push-to-whisper.exe --debug-recording     # Enable
 push-to-whisper.exe --no-debug-recording  # Disable
+
+# Force CPU mode (disable GPU acceleration)
+push-to-whisper.exe --force-cpu     # Force CPU mode
+push-to-whisper.exe --no-gpu        # Alternative syntax
 ```
+
+## GPU Acceleration and CPU Fallback
+
+Push-to-Whisper uses CUDA for GPU acceleration when available, which significantly improves transcription speed. The application includes a robust fallback mechanism:
+
+1. By default, it attempts to use GPU acceleration if CUDA is available
+2. If CUDA is not available or initialization fails, it automatically falls back to CPU processing
+3. You can force CPU-only mode using the `--force-cpu` flag or by setting `force_cpu = true` in the configuration file
+
+This ensures the application works reliably across different systems, regardless of GPU capabilities.
 
 ## Model Sizes
 
@@ -117,7 +142,7 @@ Models with ".en" suffix are optimized for English only. The "large" model suppo
 - Windows 10 or Windows 11
 - Microphone or audio input device
 - 4GB RAM minimum (8GB recommended)
-- For GPU acceleration: NVIDIA GPU with CUDA support
+- For GPU acceleration: NVIDIA GPU with CUDA support (10.x, 11.x, or 12.x)
 
 ## Troubleshooting
 
@@ -126,6 +151,7 @@ Models with ".en" suffix are optimized for English only. The "large" model suppo
 - **Performance issues**: Try a smaller model with `--model-size tiny.en` or `--model-size base.en`
 - **Text insertion problems**: Make sure your cursor is in a text field
 - **Non-English languages**: Use the large model with `--model-size large` for non-English transcription
+- **CUDA/GPU issues**: If you experience crashes or errors related to GPU acceleration, use `--force-cpu` to run in CPU-only mode
 
 ## Building from Source (For Developers)
 
@@ -150,6 +176,11 @@ Models with ".en" suffix are optimized for English only. The "large" model suppo
    ```
 
 2. The executable will be in `target/release/push-to-whisper.exe`
+
+3. To build without CUDA support:
+   ```
+   cargo build --release --no-default-features
+   ```
 
 ## Future Platform Support
 

@@ -1,21 +1,20 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use hound;
 use log::{error, info, debug, warn};
 use parking_lot::Mutex;
 use rodio::{source::SineWave, OutputStream, Sink, Source};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 use once_cell::sync::Lazy;
 
 use crate::error::AppError;
+use crate::utils::get_config;
 
 // Configuration
 const SAMPLE_RATE: u32 = 16000;
 const CHANNELS: u16 = 1;
-const ENABLE_BEEP_SOUNDS: bool = true;
 const KEEP_HEADPHONES_ALIVE: bool = true;
 const HEADPHONE_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(30);
 
@@ -44,15 +43,15 @@ static AUDIO_BUFFER: Lazy<Mutex<Vec<f32>>> = Lazy::new(|| Mutex::new(Vec::with_c
 
 // Helper function to update activity time
 fn update_activity_time() {
-    let now = Instant::now().elapsed().as_secs();
     crate::input::update_activity_time();
 }
 
 // Helper function to play a blocking beep
 pub fn play_beep_blocking(frequency: u32, duration_ms: u64) -> Result<()> {
-    // Skip if beeps are disabled
-    if !ENABLE_BEEP_SOUNDS {
-        info!("Beep sounds disabled, skipping beep at {}Hz", frequency);
+    // Check if beeps are disabled in config
+    let config = get_config();
+    if config.disable_beep {
+        info!("Beep sounds disabled in config, skipping beep at {}Hz", frequency);
         return Ok(());
     }
     
@@ -66,16 +65,16 @@ pub fn play_beep_blocking(frequency: u32, duration_ms: u64) -> Result<()> {
     let sink = Sink::try_new(&stream_handle)
         .map_err(|e| anyhow::anyhow!("Failed to create audio sink: {}", e))?;
     
-    // Create a sine wave source with MAXIMUM volume
+    // Create a sine wave source with configured volume
     let source = SineWave::new(frequency as f32)
         .take_duration(Duration::from_millis(duration_ms))
-        .amplify(1.0); // Maximum volume for better audibility
+        .amplify(config.beep_volume); // Use configured volume
     
     // Add the source to the sink
     sink.append(source);
     
-    // Set the volume to maximum
-    sink.set_volume(1.0);
+    // Set the volume
+    sink.set_volume(config.beep_volume); // Use configured volume
     
     // Wait for the beep to finish - this blocks the thread
     info!("Waiting for beep to complete...");
@@ -100,14 +99,18 @@ pub fn start_recording() -> Result<()> {
     
     info!("▶️ PREPARING TO RECORD - PLAYING BEEP ▶️");
     
+    // Get config to check if beeps are enabled
+    let config = get_config();
+    let beeps_enabled = !config.disable_beep;
+    
     let beep_result = play_beep_blocking(1000, 600);
     if let Err(e) = &beep_result {
         warn!("Failed to play start beep: {}", e);
-    } else if ENABLE_BEEP_SOUNDS {
+    } else if beeps_enabled {
         info!("Start beep completed successfully");
     }
     
-    if ENABLE_BEEP_SOUNDS {
+    if beeps_enabled {
         thread::sleep(Duration::from_millis(300));
     } else {
         thread::sleep(Duration::from_millis(100));
@@ -137,6 +140,21 @@ pub fn stop_recording() -> Result<()> {
     
     info!("⏹️ STOPPING RECORDING ⏹️");
     RECORDING.store(false, Ordering::SeqCst);
+    
+    // Play a beep to indicate recording has stopped
+    info!("Playing stop recording beep");
+    let beep_result = play_beep_blocking(800, 600); // Different tone from start beep
+    if let Err(e) = &beep_result {
+        warn!("Failed to play stop beep: {}", e);
+    } else {
+        // Get config to check if beeps are enabled
+        let config = get_config();
+        let beeps_enabled = !config.disable_beep;
+        
+        if beeps_enabled {
+            info!("Stop beep completed successfully");
+        }
+    }
     
     // Get the recorded audio
     let audio_data = AUDIO_BUFFER.lock().clone();

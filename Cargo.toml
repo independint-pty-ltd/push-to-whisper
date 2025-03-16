@@ -1,6 +1,6 @@
 [package]
 name = "push-to-whisper"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Your Name <your.email@example.com>"]
 description = "A fast, private push-to-speak transcription tool using OpenAI's Whisper model"
@@ -12,10 +12,18 @@ categories = ["command-line-utilities", "multimedia::audio"]
 build = "build.rs"
 
 [features]
-default = []
+default = ["cuda"]
 ksni = []
 libappindicator = []
 cuda = ["whisper-rs/cuda"]
+
+[[bin]]
+name = "push-to-whisper"
+path = "src/main.rs"
+
+[[bin]]
+name = "create_release"
+path = "tools/create_release.rs"
 
 [dependencies]
 # Audio recording and processing
@@ -24,7 +32,7 @@ hound = "3.5.1"
 ringbuf = "0.3.3"
 
 # Whisper speech recognition
-whisper-rs = { version = "0.14.2", features = ["cuda"] }
+whisper-rs = { version = "0.14.2", default-features = false }
 
 # Keyboard and clipboard operations
 rdev = "0.5"

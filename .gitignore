@@ -1,7 +1,6 @@
 # Rust build artifacts
 /target/
 debug/
-release/
 **/*.rs.bk
 *.pdb
 
@@ -39,3 +38,4 @@ Desktop.ini
 .env.* 
 
 .cursor/
+release/push-to-whisper-*.zip
