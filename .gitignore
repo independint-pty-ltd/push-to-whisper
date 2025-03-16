@@ -1,7 +1,6 @@
 # Rust build artifacts
 /target/
 debug/
-release/
 **/*.rs.bk
 *.pdb
 
