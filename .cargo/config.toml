@@ -15,7 +15,7 @@
 # - Primary optimization for RTX 4000 (Ada) and 3000 (Ampere) series
 # - Secondary support for older architectures
 # - Using PTX for Maxwell compatibility
-CUDA_ARCH = "compute_89,sm_89;compute_86,sm_86;sm_87;sm_75;sm_70;sm_61;sm_60;compute_52,sm_52"
+CMAKE_CUDA_ARCHITECTURES="52;60;61;70;75;86;87;89"
 
 [build]
 rustflags = [
