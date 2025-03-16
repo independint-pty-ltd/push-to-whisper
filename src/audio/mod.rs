@@ -159,19 +159,80 @@ pub fn stop_recording() -> Result<()> {
     // Get the recorded audio
     let audio_data = AUDIO_BUFFER.lock().clone();
     
-    // Get the device's native sample rate
-    let device_sample_rate = cpal::default_host()
-        .default_input_device()
-        .and_then(|d| d.default_input_config().ok())
-        .map(|config| config.sample_rate().0)
-        .unwrap_or(48000); // Fallback to common rate if we can't determine
+    if audio_data.is_empty() {
+        warn!("No audio data was recorded");
+        return Ok(());
+    }
+    
+    info!("Captured {} audio samples", audio_data.len());
+    
+    // Get the device's native configuration
+    let device = match cpal::default_host().default_input_device() {
+        Some(device) => device,
+        None => {
+            warn!("No input device available, assuming default configuration");
+            // Continue with default values
+            let audio_data = process_audio_for_whisper(audio_data, 48000, 1)?;
+            return process_transcription(audio_data);
+        }
+    };
+    
+    let default_config = match device.default_input_config() {
+        Ok(config) => config,
+        Err(e) => {
+            warn!("Failed to get default input config: {}, assuming default configuration", e);
+            // Continue with default values
+            let audio_data = process_audio_for_whisper(audio_data, 48000, 1)?;
+            return process_transcription(audio_data);
+        }
+    };
+    
+    let device_sample_rate = default_config.sample_rate().0;
+    let device_channels = default_config.channels();
+    
+    info!("Device configuration: {} channels at {} Hz", device_channels, device_sample_rate);
+    
+    // Process the audio for Whisper
+    let audio_data = process_audio_for_whisper(audio_data, device_sample_rate, device_channels)?;
+    
+    // Process with Whisper
+    process_transcription(audio_data)
+}
+
+// Helper function to process audio for Whisper
+fn process_audio_for_whisper(audio_data: Vec<f32>, sample_rate: u32, channels: u16) -> Result<Vec<f32>> {
+    // Convert multi-channel audio to mono if needed
+    let audio_data = if channels > 1 {
+        info!("Converting {}-channel audio to mono", channels);
+        let samples_per_frame = channels as usize;
+        let frame_count = audio_data.len() / samples_per_frame;
+        let mut mono_data = Vec::with_capacity(frame_count);
+        
+        for frame_idx in 0..frame_count {
+            let start_idx = frame_idx * samples_per_frame;
+            let end_idx = start_idx + samples_per_frame;
+            
+            if end_idx <= audio_data.len() {
+                // Average all channels to create mono
+                let frame_sum: f32 = audio_data[start_idx..end_idx].iter().sum();
+                let mono_sample = frame_sum / samples_per_frame as f32;
+                mono_data.push(mono_sample);
+            }
+        }
+        
+        info!("Converted from {} multi-channel samples to {} mono samples", 
+              audio_data.len(), mono_data.len());
+        mono_data
+    } else {
+        audio_data
+    };
     
     // If the device sample rate is different from what Whisper expects, resample
-    let audio_data = if device_sample_rate != SAMPLE_RATE {
-        info!("Resampling audio from {}Hz to {}Hz", device_sample_rate, SAMPLE_RATE);
+    let audio_data = if sample_rate != SAMPLE_RATE {
+        info!("Resampling audio from {}Hz to {}Hz", sample_rate, SAMPLE_RATE);
         
         // Simple linear interpolation resampling
-        let resampling_ratio = device_sample_rate as f32 / SAMPLE_RATE as f32;
+        let resampling_ratio = sample_rate as f32 / SAMPLE_RATE as f32;
         let target_len = (audio_data.len() as f32 / resampling_ratio) as usize;
         let mut resampled = Vec::with_capacity(target_len);
         
@@ -207,8 +268,13 @@ pub fn stop_recording() -> Result<()> {
         }
     }
     
+    Ok(audio_data)
+}
+
+// Helper function to process transcription
+fn process_transcription(audio_data: Vec<f32>) -> Result<()> {
     // Process with Whisper
-    info!("Processing speech...");
+    info!("Processing speech with Whisper...");
     let transcription = crate::whisper::transcribe_audio(&audio_data)
         .context("Failed to transcribe audio")?;
     
@@ -235,14 +301,114 @@ fn audio_recording_thread() -> Result<()> {
     let default_config = device.default_input_config()
         .map_err(|e| AppError::Device(format!("Failed to get default input config: {}", e)))?;
 
-    // Use the device's native sample rate
-    let config = cpal::StreamConfig {
-        channels: CHANNELS,
-        sample_rate: default_config.sample_rate(),
-        buffer_size: cpal::BufferSize::Default,
-    };
+    // Try to build a stream with the device's native configuration first
+    let result = try_build_stream(&device, &default_config);
+    
+    // If the native configuration fails, try fallback configurations
+    if let Err(e) = result {
+        warn!("Failed to build stream with native config: {}", e);
+        
+        // Try to get all supported configurations
+        match device.supported_input_configs() {
+            Ok(supported_configs) => {
+                debug!("Trying alternative configurations...");
+                
+                // Convert iterator to Vec to avoid borrowing issues
+                let configs: Vec<_> = supported_configs.collect();
+                
+                // Try each supported configuration until one works
+                for supported_config_range in configs {
+                    // Try with minimum sample rate first (usually more compatible)
+                    let config = supported_config_range.with_sample_rate(supported_config_range.min_sample_rate());
+                    debug!("Trying config: {} channels at {} Hz", 
+                           config.channels(), 
+                           config.sample_rate().0);
+                    
+                    if let Ok(_) = try_build_stream(&device, &config) {
+                        return Ok(());
+                    }
+                    
+                    // If min sample rate failed, try max sample rate
+                    let config = supported_config_range.with_max_sample_rate();
+                    debug!("Trying config: {} channels at {} Hz", 
+                           config.channels(), 
+                           config.sample_rate().0);
+                    
+                    if let Ok(_) = try_build_stream(&device, &config) {
+                        return Ok(());
+                    }
+                }
+                
+                // If all supported configs failed, try some common configurations
+                let common_configs = [
+                    (1, 16000),  // Mono, 16kHz (common for speech)
+                    (1, 44100),  // Mono, 44.1kHz (CD quality)
+                    (1, 48000),  // Mono, 48kHz (common for digital audio)
+                    (2, 44100),  // Stereo, 44.1kHz
+                    (2, 48000),  // Stereo, 48kHz
+                ];
+                
+                for (channels, sample_rate) in common_configs.iter() {
+                    debug!("Trying common config: {} channels at {} Hz", channels, sample_rate);
+                    
+                    let config = cpal::StreamConfig {
+                        channels: *channels,
+                        sample_rate: cpal::SampleRate(*sample_rate),
+                        buffer_size: cpal::BufferSize::Default,
+                    };
+                    
+                    if let Ok(_) = try_build_input_stream(&device, &config) {
+                        return Ok(());
+                    }
+                }
+                
+                // If all attempts failed, return the original error
+                return Err(e.into());
+            },
+            Err(e) => {
+                // If we can't get supported configs, try some common configurations
+                warn!("Failed to get supported configs: {}", e);
+                
+                let common_configs = [
+                    (1, 16000),  // Mono, 16kHz (common for speech)
+                    (1, 44100),  // Mono, 44.1kHz (CD quality)
+                    (1, 48000),  // Mono, 48kHz (common for digital audio)
+                    (2, 44100),  // Stereo, 44.1kHz
+                    (2, 48000),  // Stereo, 48kHz
+                ];
+                
+                for (channels, sample_rate) in common_configs.iter() {
+                    debug!("Trying common config: {} channels at {} Hz", channels, sample_rate);
+                    
+                    let config = cpal::StreamConfig {
+                        channels: *channels,
+                        sample_rate: cpal::SampleRate(*sample_rate),
+                        buffer_size: cpal::BufferSize::Default,
+                    };
+                    
+                    if let Ok(_) = try_build_input_stream(&device, &config) {
+                        return Ok(());
+                    }
+                }
+                
+                // If all attempts failed, return the original error
+                return Err(e.into());
+            }
+        }
+    }
+    
+    Ok(())
+}
 
-    debug!("Using stream config: {} channels at {} Hz", 
+// Helper function to try building a stream with a specific configuration
+fn try_build_stream(device: &cpal::Device, config: &cpal::SupportedStreamConfig) -> Result<()> {
+    let stream_config: cpal::StreamConfig = config.clone().into();
+    try_build_input_stream(device, &stream_config)
+}
+
+// Helper function to try building a stream with a specific StreamConfig
+fn try_build_input_stream(device: &cpal::Device, config: &cpal::StreamConfig) -> Result<()> {
+    debug!("Trying stream config: {} channels at {} Hz", 
            config.channels, 
            config.sample_rate.0);
 
@@ -252,7 +418,7 @@ fn audio_recording_thread() -> Result<()> {
 
     debug!("Building input stream...");
     let stream = device.build_input_stream(
-        &config,
+        config,
         move |data: &[f32], _: &cpal::InputCallbackInfo| {
             if RECORDING.load(Ordering::SeqCst) {
                 AUDIO_BUFFER.lock().extend_from_slice(data);
@@ -305,9 +471,69 @@ pub fn headphone_keepalive_thread() -> Result<()> {
     Ok(())
 }
 
+// Function to list available audio devices for troubleshooting
+pub fn list_audio_devices() -> Result<()> {
+    let host = cpal::default_host();
+    
+    info!("Audio Host: {}", host.id().name());
+    
+    // List input devices
+    match host.input_devices() {
+        Ok(devices) => {
+            let devices: Vec<_> = devices.collect();
+            if devices.is_empty() {
+                info!("No input devices found");
+            } else {
+                info!("Available input devices:");
+                for (i, device) in devices.iter().enumerate() {
+                    match device.name() {
+                        Ok(name) => info!("  {}. {}", i + 1, name),
+                        Err(_) => info!("  {}. <unknown name>", i + 1),
+                    }
+                    
+                    // Try to get supported configs
+                    match device.supported_input_configs() {
+                        Ok(configs) => {
+                            let configs: Vec<_> = configs.collect();
+                            if configs.is_empty() {
+                                info!("     No supported configurations found");
+                            } else {
+                                for (j, config) in configs.iter().enumerate() {
+                                    info!("     {}.{} Channels: {}, Sample rates: {} - {} Hz, Format: {:?}",
+                                          i + 1, j + 1,
+                                          config.channels(),
+                                          config.min_sample_rate().0,
+                                          config.max_sample_rate().0,
+                                          config.sample_format());
+                                }
+                            }
+                        },
+                        Err(e) => info!("     Error getting supported configs: {}", e),
+                    }
+                }
+            }
+        },
+        Err(e) => warn!("Error enumerating input devices: {}", e),
+    }
+    
+    // Get default input device
+    match host.default_input_device() {
+        Some(device) => {
+            match device.name() {
+                Ok(name) => info!("Default input device: {}", name),
+                Err(_) => info!("Default input device: <unknown name>"),
+            }
+        },
+        None => info!("No default input device found"),
+    }
+    
+    Ok(())
+}
+
 pub fn save_debug_audio(audio_data: &[f32], path: &str) -> Result<()> {
+    // Always save as mono audio (Whisper expects mono)
     let spec = hound::WavSpec {
-        channels: CHANNELS,
+        channels: 1, // Always mono
         sample_rate: SAMPLE_RATE,
         bits_per_sample: 32,
         sample_format: hound::SampleFormat::Float,
