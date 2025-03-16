@@ -19,7 +19,7 @@ fn main() -> io::Result<()> {
     let release_dir = project_root.join("release");
     let target_dir = project_root.join("target").join("release");
     let temp_dir = release_dir.join("temp_package");
-    let zip_file_name = format!("push-to-whisper-v{}.zip", version);
+    let zip_file_name = format!("push-to-whisper-windows-x64-v{}.zip", version);
     let zip_file_path = release_dir.join(&zip_file_name);
     
     // Create release directory if it doesn't exist

@@ -142,7 +142,44 @@ Models with ".en" suffix are optimized for English only. The "large" model suppo
 - Windows 10 or Windows 11
 - Microphone or audio input device
 - 4GB RAM minimum (8GB recommended)
-- For GPU acceleration: NVIDIA GPU with CUDA support (10.x, 11.x, or 12.x)
+- For GPU acceleration: NVIDIA GPU with CUDA support (see below)
+
+### GPU Support
+
+Push-to-Whisper includes support for a wide range of NVIDIA GPUs through CUDA acceleration:
+
+| Architecture | GPU Series | Launch | Example GPUs | Performance |
+|-------------|------------|--------|--------------|-------------|
+| Maxwell     | GTX 900    | 2014   | GTX 970, 980, 980 Ti | Good |
+| Pascal      | GTX 1000   | 2016   | GTX 1060, 1070, 1080 | Better |
+| Volta       | Tesla/Quadro| 2017   | V100, Titan V | Excellent |
+| Turing      | RTX 2000   | 2018   | RTX 2060, 2070, 2080 | Excellent |
+| Ampere      | RTX 3000   | 2020   | RTX 3060, 3070, 3080 | Outstanding |
+| Ada         | RTX 4000   | 2022   | RTX 4060, 4070, 4080 | Outstanding |
+
+Notes:
+- The application automatically selects the best available GPU architecture
+- If no compatible GPU is found, it gracefully falls back to CPU mode
+- CPU mode works on all systems but is significantly slower
+- For best performance, we recommend RTX 2000 series or newer
+
+### GPU Acceleration Options
+
+You can control GPU acceleration through command line options:
+
+```bash
+# Force CPU-only mode (disable GPU acceleration)
+push-to-whisper.exe --force-cpu
+
+# Alternative syntax for forcing CPU mode
+push-to-whisper.exe --no-gpu
+```
+
+Or through the configuration file:
+```ini
+# Force CPU mode (true/false)
+force_cpu = false
+```
 
 ## Troubleshooting
 
@@ -165,6 +202,7 @@ Models with ".en" suffix are optimized for English only. The "large" model suppo
 
 2. For GPU support (optional):
    - Install [CUDA Toolkit 11.7+](https://developer.nvidia.com/cuda-toolkit)
+   - The project includes CUDA configuration in `.cargo/config.toml` for building with support for multiple GPU architectures (Maxwell through Ada)
 
 ### Build Steps
 
@@ -181,6 +219,27 @@ Models with ".en" suffix are optimized for English only. The "large" model suppo
    ```
    cargo build --release --no-default-features
    ```
+
+### CUDA Architecture Support
+
+The project includes a `.cargo/config.toml` file that configures CUDA to build for multiple GPU architectures:
+```toml
+# Support for NVIDIA GPU architectures from 2014-present
+CUDA_ARCH = "compute_52,sm_52;compute_60,sm_60;compute_61,sm_61;compute_70,sm_70;compute_75,sm_75;compute_86,sm_86;compute_87,sm_87;compute_89,sm_89;compute_89,ptx"
+```
+
+This configuration ensures compatibility with:
+- Maxwell GPUs (GTX 970, 980, etc.) - compute 5.2
+- Pascal GPUs (GTX 1050, 1060, 1070, 1080) - compute 6.0/6.1
+- Volta GPUs (V100, Titan V) - compute 7.0
+- Turing GPUs (RTX 2060, 2070, 2080) - compute 7.5
+- Ampere GPUs (RTX 3050, 3060, 3070, 3080) - compute 8.6/8.7
+- Ada GPUs (RTX 4060, 4070, 4080, 4090) - compute 8.9
+
+The configuration uses CUDA 12.x format with compute/sm pairs and includes PTX for forward compatibility. You can modify these values if you:
+- Need to support different GPU architectures
+- Want to optimize for specific GPU models
+- Need to reduce build time by targeting fewer architectures
 
 ## Future Platform Support
 
