@@ -39,3 +39,4 @@ Desktop.ini
 .env.* 
 
 .cursor/
+release/push-to-whisper-*.zip
