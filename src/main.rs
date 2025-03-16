@@ -21,7 +21,7 @@ use crossbeam_channel::{bounded, Sender, Receiver, select, tick};
 use simple_logger;
 
 use crate::{
-    audio::{start_recording, stop_recording, play_beep_blocking},
+    audio::{start_recording, stop_recording, play_beep_blocking, list_audio_devices, headphone_keepalive_thread},
     whisper::{transcribe_audio, load_model},
     ui::update_tray_icon,
     input::{handle_keyboard_event, start_keyboard_listener},
@@ -96,36 +96,21 @@ async fn main() -> Result<()> {
         info!("System tray icon initialized successfully");
     }
     
+    // Start headphone keepalive thread if enabled
+    let config = utils::get_config();
+    if config.headphone_keepalive_interval > 0 {
+        info!("Starting headphone keepalive thread with interval of {}s", config.headphone_keepalive_interval);
+        if let Err(e) = headphone_keepalive_thread() {
+            warn!("Failed to start headphone keepalive thread: {}", e);
+        }
+    }
+    
     // Start keyboard event listener
     let keyboard_thread = thread::spawn(move || {
         if let Err(e) = start_keyboard_listener() {
             error!("Keyboard listener error: {}", e);
         }
     });
-    
-    // Start headphone keepalive thread if enabled
-    let mut headphone_thread = None;
-    if args.headphone_keepalive_interval > 0 {
-        info!("Starting headphone keepalive thread with interval of {}s", args.headphone_keepalive_interval);
-        let interval = args.headphone_keepalive_interval;
-        headphone_thread = Some(thread::spawn(move || {
-            let interval_duration = Duration::from_secs(interval);
-            loop {
-                if EXIT_REQUESTED.load(Ordering::SeqCst) {
-                    break;
-                }
-                
-                // Only play keepalive beep if we're recording
-                if RECORDING.load(Ordering::SeqCst) {
-                    if let Err(e) = play_beep_blocking(1000, 100) {
-                        error!("Failed to play keepalive beep: {}", e);
-                    }
-                }
-                
-                thread::sleep(interval_duration);
-            }
-        }));
-    }
     
     // Main event loop
     let ticker = tick(Duration::from_millis(100));
@@ -168,6 +153,11 @@ async fn init_app(args: &Args) -> Result<()> {
             error!("Failed to remove lock file on exit: {}", e);
         }
     })?;
+    
+    // List available audio devices for troubleshooting
+    if let Err(e) = list_audio_devices() {
+        warn!("Failed to list audio devices: {}", e);
+    }
     
     // Load the whisper model with the specified model size
     load_model(&args.model_size).await?;
