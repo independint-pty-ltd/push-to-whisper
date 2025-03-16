@@ -7,9 +7,15 @@
 # 61 (Pascal)    GeForce 1000         2016      GTX 1050, 1050 Ti
 # 70 (Volta)     Tesla/Quadro         2017      V100, Titan V
 # 75 (Turing)    GeForce RTX 2000     2018      RTX 2060, 2070, 2080
-# 86 (Ampere)    GeForce RTX 3000     2020      RTX 3060, 3070, 3080
-# 89 (Ada)       GeForce RTX 4000     2022      RTX 4060, 4070, 4080
-CUDA_ARCH = "52;60;61;70;75;86;89"
+# 86 (Ampere)    GeForce RTX 3000     2020      RTX 3050, 3060, 3070, 3080
+# 87 (Ampere)    GeForce RTX 3000     2021      RTX 3050 (mobile)
+# 89 (Ada)       GeForce RTX 4000     2022      RTX 4060, 4070, 4080, 4090
+#
+# Format for CUDA 12.x:
+# - Primary optimization for RTX 4000 (Ada) and 3000 (Ampere) series
+# - Secondary support for older architectures
+# - Using PTX for Maxwell compatibility
+CUDA_ARCH = "compute_89,sm_89;compute_86,sm_86;sm_87;sm_75;sm_70;sm_61;sm_60;compute_52,sm_52"
 
 [build]
 rustflags = [

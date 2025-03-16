@@ -202,6 +202,7 @@ force_cpu = false
 
 2. For GPU support (optional):
    - Install [CUDA Toolkit 11.7+](https://developer.nvidia.com/cuda-toolkit)
+   - The project includes CUDA configuration in `.cargo/config.toml` for building with support for multiple GPU architectures (Maxwell through Ada)
 
 ### Build Steps
 
@@ -218,6 +219,27 @@ force_cpu = false
    ```
    cargo build --release --no-default-features
    ```
+
+### CUDA Architecture Support
+
+The project includes a `.cargo/config.toml` file that configures CUDA to build for multiple GPU architectures:
+```toml
+# Support for NVIDIA GPU architectures from 2014-present
+CUDA_ARCH = "compute_52,sm_52;compute_60,sm_60;compute_61,sm_61;compute_70,sm_70;compute_75,sm_75;compute_86,sm_86;compute_87,sm_87;compute_89,sm_89;compute_89,ptx"
+```
+
+This configuration ensures compatibility with:
+- Maxwell GPUs (GTX 970, 980, etc.) - compute 5.2
+- Pascal GPUs (GTX 1050, 1060, 1070, 1080) - compute 6.0/6.1
+- Volta GPUs (V100, Titan V) - compute 7.0
+- Turing GPUs (RTX 2060, 2070, 2080) - compute 7.5
+- Ampere GPUs (RTX 3050, 3060, 3070, 3080) - compute 8.6/8.7
+- Ada GPUs (RTX 4060, 4070, 4080, 4090) - compute 8.9
+
+The configuration uses CUDA 12.x format with compute/sm pairs and includes PTX for forward compatibility. You can modify these values if you:
+- Need to support different GPU architectures
+- Want to optimize for specific GPU models
+- Need to reduce build time by targeting fewer architectures
 
 ## Future Platform Support
 
