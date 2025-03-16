@@ -1,11 +1,10 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use hound;
 use log::{error, info, debug, warn};
 use parking_lot::Mutex;
 use rodio::{source::SineWave, OutputStream, Sink, Source};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 use once_cell::sync::Lazy;
@@ -44,7 +43,6 @@ static AUDIO_BUFFER: Lazy<Mutex<Vec<f32>>> = Lazy::new(|| Mutex::new(Vec::with_c
 
 // Helper function to update activity time
 fn update_activity_time() {
-    let now = Instant::now().elapsed().as_secs();
     crate::input::update_activity_time();
 }
 
@@ -67,16 +65,16 @@ pub fn play_beep_blocking(frequency: u32, duration_ms: u64) -> Result<()> {
     let sink = Sink::try_new(&stream_handle)
         .map_err(|e| anyhow::anyhow!("Failed to create audio sink: {}", e))?;
     
-    // Create a sine wave source with MAXIMUM volume
+    // Create a sine wave source with configured volume
     let source = SineWave::new(frequency as f32)
         .take_duration(Duration::from_millis(duration_ms))
-        .amplify(1.0); // Maximum volume for better audibility
+        .amplify(config.beep_volume); // Use configured volume
     
     // Add the source to the sink
     sink.append(source);
     
-    // Set the volume to maximum
-    sink.set_volume(1.0);
+    // Set the volume
+    sink.set_volume(config.beep_volume); // Use configured volume
     
     // Wait for the beep to finish - this blocks the thread
     info!("Waiting for beep to complete...");

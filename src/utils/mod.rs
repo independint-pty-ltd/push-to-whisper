@@ -25,6 +25,7 @@ pub struct Args {
     pub headphone_keepalive_interval: u64,
     pub enable_debug_recording: bool,
     pub force_cpu: bool,
+    pub beep_volume: f32,
 }
 
 // Global state
@@ -40,6 +41,7 @@ pub const DEFAULT_MODEL: &str = "medium.en";
 pub const DEFAULT_LONG_PRESS_THRESHOLD: u64 = 500; // milliseconds
 pub const DEFAULT_HEADPHONE_KEEPALIVE_INTERVAL: u64 = 30; // seconds
 pub const DEFAULT_ENABLE_DEBUG_RECORDING: bool = false; // disabled by default
+pub const DEFAULT_BEEP_VOLUME: f32 = 0.1; // 10% volume by default
 
 fn is_another_instance_running() -> bool {
     // Get the current process ID
@@ -131,8 +133,62 @@ pub fn request_exit() {
     }
 }
 
+fn merge_config_with_defaults(existing_config: &str) -> String {
+    let mut config_lines: Vec<String> = existing_config.lines().map(String::from).collect();
+    let mut has_changes = false;
+    
+    // Check for missing configurations and add them with defaults
+    let required_configs = [
+        ("enable_beep", "true", "Audio feedback (true/false)"),
+        ("enable_tray", "true", "System tray icon (true/false)"),
+        ("enable_visual", "true", "Visual feedback (true/false)"),
+        ("model_size", DEFAULT_MODEL, "Whisper model size (tiny.en, base.en, small.en, medium.en, large)"),
+        ("long_press_threshold", &DEFAULT_LONG_PRESS_THRESHOLD.to_string(), "Long press threshold in milliseconds"),
+        ("headphone_keepalive_interval", &DEFAULT_HEADPHONE_KEEPALIVE_INTERVAL.to_string(), "Headphone keepalive interval in seconds"),
+        ("enable_debug_recording", &DEFAULT_ENABLE_DEBUG_RECORDING.to_string(), "Debug recording (true/false)"),
+        ("force_cpu", "false", "Force CPU mode (true/false)"),
+        ("beep_volume", &DEFAULT_BEEP_VOLUME.to_string(), "Beep volume (0.0 to 1.0)"),
+    ];
+    
+    for (key, default_value, comment) in required_configs {
+        if !config_lines.iter().any(|line| {
+            let line = line.trim();
+            !line.starts_with('#') && line.split('=').next().map_or(false, |k| k.trim() == key)
+        }) {
+            // Add a blank line before new sections if there isn't one
+            if !config_lines.last().map_or(true, |line| line.trim().is_empty()) {
+                config_lines.push(String::new());
+            }
+            // Add the comment and setting as owned strings
+            config_lines.push(format!("# {}", comment));
+            config_lines.push(format!("{} = {}", key, default_value));
+            has_changes = true;
+        }
+    }
+    
+    if has_changes {
+        config_lines.join("\n") + "\n"
+    } else {
+        existing_config.to_string()
+    }
+}
+
 fn create_default_config_if_not_exists() -> Result<()> {
-    if !Path::new(CONFIG_FILE_PATH).exists() {
+    let config_path = Path::new(CONFIG_FILE_PATH);
+    
+    if config_path.exists() {
+        // Read existing config
+        let existing_config = fs::read_to_string(config_path)?;
+        
+        // Merge with defaults
+        let merged_config = merge_config_with_defaults(&existing_config);
+        
+        // Only write if changes were made
+        if merged_config != existing_config {
+            info!("Updating configuration file with new default settings");
+            fs::write(config_path, merged_config)?;
+        }
+    } else {
         info!("Creating default configuration file at {}", CONFIG_FILE_PATH);
         let config_content = format!(
             "# Push-to-Whisper Configuration File\n\
@@ -164,14 +220,18 @@ fn create_default_config_if_not_exists() -> Result<()> {
             \n\
             # Force CPU mode (true/false)\n\
             # Set to true to disable GPU acceleration and use CPU only\n\
-            force_cpu = false\n",
+            force_cpu = false\n\
+            \n\
+            # Beep volume (0.0 to 1.0)\n\
+            beep_volume = {}\n",
             DEFAULT_MODEL,
             DEFAULT_LONG_PRESS_THRESHOLD,
             DEFAULT_HEADPHONE_KEEPALIVE_INTERVAL,
-            DEFAULT_ENABLE_DEBUG_RECORDING
+            DEFAULT_ENABLE_DEBUG_RECORDING,
+            DEFAULT_BEEP_VOLUME
         );
         
-        fs::write(CONFIG_FILE_PATH, config_content)?;
+        fs::write(config_path, config_content)?;
     }
     
     Ok(())
@@ -192,6 +252,7 @@ fn read_config_file() -> Args {
     let mut headphone_keepalive_interval = DEFAULT_HEADPHONE_KEEPALIVE_INTERVAL;
     let mut enable_debug_recording = DEFAULT_ENABLE_DEBUG_RECORDING;
     let mut force_cpu = false;
+    let mut beep_volume = DEFAULT_BEEP_VOLUME;
     
     // Try to read config file
     if let Ok(mut file) = File::open(CONFIG_FILE_PATH) {
@@ -244,6 +305,11 @@ fn read_config_file() -> Args {
                         "force_cpu" => {
                             force_cpu = value.to_lowercase() == "true";
                         },
+                        "beep_volume" => {
+                            if let Ok(val) = value.parse::<f32>() {
+                                beep_volume = val;
+                            }
+                        },
                         _ => {
                             // Unknown key, ignore
                         }
@@ -262,6 +328,7 @@ fn read_config_file() -> Args {
         headphone_keepalive_interval,
         enable_debug_recording,
         force_cpu,
+        beep_volume,
     }
 }
 
@@ -339,6 +406,23 @@ pub fn parse_args() -> Args {
                 args.force_cpu = true;
                 i += 1;
             },
+            "--beep-volume" => {
+                if let Some(value) = std::env::args().nth(i + 1) {
+                    if let Ok(val) = value.parse::<f32>() {
+                        if val >= 0.0 && val <= 1.0 {
+                            args.beep_volume = val;
+                        } else {
+                            error!("Beep volume must be between 0.0 and 1.0");
+                        }
+                    } else {
+                        error!("Invalid value for beep volume: {}", value);
+                    }
+                    i += 2;
+                } else {
+                    error!("Missing value for --beep-volume");
+                    i += 1;
+                }
+            },
             _ => {
                 // Unknown argument, ignore
                 i += 1;
@@ -364,6 +448,7 @@ pub fn get_config() -> Args {
             headphone_keepalive_interval: DEFAULT_HEADPHONE_KEEPALIVE_INTERVAL,
             enable_debug_recording: DEFAULT_ENABLE_DEBUG_RECORDING,
             force_cpu: false,
+            beep_volume: DEFAULT_BEEP_VOLUME,
         }
     }
 } 
