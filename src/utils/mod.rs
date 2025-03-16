@@ -24,6 +24,7 @@ pub struct Args {
     pub long_press_threshold: u64,
     pub headphone_keepalive_interval: u64,
     pub enable_debug_recording: bool,
+    pub force_cpu: bool,
 }
 
 // Global state
@@ -132,34 +133,38 @@ pub fn request_exit() {
 
 fn create_default_config_if_not_exists() -> Result<()> {
     if !Path::new(CONFIG_FILE_PATH).exists() {
-        info!("Creating default configuration file");
+        info!("Creating default configuration file at {}", CONFIG_FILE_PATH);
         let config_content = format!(
             "# Push-to-Whisper Configuration File\n\
-             # Edit this file to change default settings\n\
-             # Command line arguments will override these settings\n\
-             \n\
-             # Audio feedback (true/false)\n\
-             enable_beep = true\n\
-             \n\
-             # System tray icon (true/false)\n\
-             enable_tray = true\n\
-             \n\
-             # Visual feedback (true/false)\n\
-             enable_visual = true\n\
-             \n\
-             # Whisper model size (tiny.en, base.en, small.en, medium.en, large)\n\
-             model_size = {}\n\
-             \n\
-             # Long press threshold in milliseconds (how long to hold the key before recording starts)\n\
-             long_press_threshold = {}\n\
-             \n\
-             # Headphone keepalive interval in seconds (prevents wireless headphones from disconnecting)\n\
-             # Set to 0 to disable\n\
-             headphone_keepalive_interval = {}\n\
-             \n\
-             # Save debug recording to file (true/false)\n\
-             # Creates debug_recording.wav in the application directory\n\
-             enable_debug_recording = {}\n",
+            # Edit this file to change default settings\n\
+            # Command line arguments will override these settings\n\
+            \n\
+            # Audio feedback (true/false)\n\
+            enable_beep = true\n\
+            \n\
+            # System tray icon (true/false)\n\
+            enable_tray = true\n\
+            \n\
+            # Visual feedback (true/false)\n\
+            enable_visual = true\n\
+            \n\
+            # Whisper model size (tiny.en, base.en, small.en, medium.en, large)\n\
+            model_size = {}\n\
+            \n\
+            # Long press threshold in milliseconds (how long to hold the key before recording starts)\n\
+            long_press_threshold = {}\n\
+            \n\
+            # Headphone keepalive interval in seconds (prevents wireless headphones from disconnecting)\n\
+            # Set to 0 to disable\n\
+            headphone_keepalive_interval = {}\n\
+            \n\
+            # Debug recording (true/false)\n\
+            # Saves audio to debug_recording.wav for troubleshooting\n\
+            enable_debug_recording = {}\n\
+            \n\
+            # Force CPU mode (true/false)\n\
+            # Set to true to disable GPU acceleration and use CPU only\n\
+            force_cpu = false\n",
             DEFAULT_MODEL,
             DEFAULT_LONG_PRESS_THRESHOLD,
             DEFAULT_HEADPHONE_KEEPALIVE_INTERVAL,
@@ -167,30 +172,31 @@ fn create_default_config_if_not_exists() -> Result<()> {
         );
         
         fs::write(CONFIG_FILE_PATH, config_content)?;
-        info!("Default configuration file created successfully");
     }
     
     Ok(())
 }
 
 fn read_config_file() -> Args {
+    // Create default config if it doesn't exist
+    if let Err(e) = create_default_config_if_not_exists() {
+        error!("Failed to create default config file: {}", e);
+    }
+    
     // Default values
-    let mut config = Args {
-        disable_beep: false,
-        disable_tray: false,
-        disable_visual: false,
-        model_size: DEFAULT_MODEL.to_string(),
-        long_press_threshold: DEFAULT_LONG_PRESS_THRESHOLD,
-        headphone_keepalive_interval: DEFAULT_HEADPHONE_KEEPALIVE_INTERVAL,
-        enable_debug_recording: DEFAULT_ENABLE_DEBUG_RECORDING,
-    };
+    let mut enable_beep = true;
+    let mut enable_tray = true;
+    let mut enable_visual = true;
+    let mut model_size = DEFAULT_MODEL.to_string();
+    let mut long_press_threshold = DEFAULT_LONG_PRESS_THRESHOLD;
+    let mut headphone_keepalive_interval = DEFAULT_HEADPHONE_KEEPALIVE_INTERVAL;
+    let mut enable_debug_recording = DEFAULT_ENABLE_DEBUG_RECORDING;
+    let mut force_cpu = false;
     
     // Try to read config file
     if let Ok(mut file) = File::open(CONFIG_FILE_PATH) {
         let mut contents = String::new();
         if file.read_to_string(&mut contents).is_ok() {
-            info!("Reading configuration from file");
-            
             // Parse each line
             for line in contents.lines() {
                 let line = line.trim();
@@ -207,160 +213,140 @@ fn read_config_file() -> Args {
                     
                     match key {
                         "enable_beep" => {
-                            config.disable_beep = value != "true";
+                            enable_beep = value.to_lowercase() == "true";
                         },
                         "enable_tray" => {
-                            config.disable_tray = value != "true";
+                            enable_tray = value.to_lowercase() == "true";
                         },
                         "enable_visual" => {
-                            config.disable_visual = value != "true";
+                            enable_visual = value.to_lowercase() == "true";
                         },
                         "model_size" => {
                             if VALID_MODELS.contains(&value) {
-                                config.model_size = value.to_string();
+                                model_size = value.to_string();
                             } else {
-                                error!("Invalid model size in config file: {}", value);
-                                error!("Using default model: {}", DEFAULT_MODEL);
+                                error!("Invalid model size in config: {}", value);
                             }
                         },
                         "long_press_threshold" => {
-                            if let Ok(threshold) = value.parse::<u64>() {
-                                if threshold > 0 {
-                                    config.long_press_threshold = threshold;
-                                } else {
-                                    error!("Invalid long press threshold: {}, must be > 0", threshold);
-                                }
-                            } else {
-                                error!("Invalid long press threshold: {}, must be a number", value);
+                            if let Ok(val) = value.parse::<u64>() {
+                                long_press_threshold = val;
                             }
                         },
                         "headphone_keepalive_interval" => {
-                            if let Ok(interval) = value.parse::<u64>() {
-                                config.headphone_keepalive_interval = interval;
-                            } else {
-                                error!("Invalid headphone keepalive interval: {}, must be a number", value);
+                            if let Ok(val) = value.parse::<u64>() {
+                                headphone_keepalive_interval = val;
                             }
                         },
                         "enable_debug_recording" => {
-                            config.enable_debug_recording = value == "true";
+                            enable_debug_recording = value.to_lowercase() == "true";
+                        },
+                        "force_cpu" => {
+                            force_cpu = value.to_lowercase() == "true";
                         },
                         _ => {
-                            // Unknown key, just log a warning
-                            error!("Unknown configuration key: {}", key);
+                            // Unknown key, ignore
                         }
                     }
                 }
             }
-            
-            info!("Configuration loaded from file");
         }
     }
     
-    config
+    Args {
+        disable_beep: !enable_beep,
+        disable_tray: !enable_tray,
+        disable_visual: !enable_visual,
+        model_size,
+        long_press_threshold,
+        headphone_keepalive_interval,
+        enable_debug_recording,
+        force_cpu,
+    }
 }
 
 pub fn parse_args() -> Args {
-    // First, ensure config file exists (create with defaults if not)
-    if let Err(e) = create_default_config_if_not_exists() {
-        error!("Failed to create default config file: {}", e);
-    }
+    // First read from config file
+    let mut args = read_config_file();
     
-    // Read config from file
-    let mut config = read_config_file();
-    
-    // Then parse command line args (which override config file)
-    let args: Vec<String> = std::env::args().collect();
-    
+    // Then override with command line arguments
     let mut i = 1;
-    while i < args.len() {
-        match args[i].as_str() {
-            "--no-beep" | "--quiet" | "-q" => config.disable_beep = true,
-            "--no-tray" => config.disable_tray = true,
-            "--no-visual" => config.disable_visual = true,
-            "--debug-recording" => config.enable_debug_recording = true,
-            "--no-debug-recording" => config.enable_debug_recording = false,
+    while i < std::env::args().len() {
+        let arg = std::env::args().nth(i).unwrap();
+        
+        match arg.as_str() {
+            "--no-beep" => {
+                args.disable_beep = true;
+                i += 1;
+            },
+            "--no-tray" => {
+                args.disable_tray = true;
+                i += 1;
+            },
+            "--no-visual" => {
+                args.disable_visual = true;
+                i += 1;
+            },
             "--model-size" | "-m" => {
-                if i + 1 < args.len() {
-                    let size = &args[i + 1];
-                    if VALID_MODELS.contains(&size.as_str()) {
-                        config.model_size = size.clone();
-                        i += 1; // Skip the next argument since we've used it
+                if let Some(value) = std::env::args().nth(i + 1) {
+                    if VALID_MODELS.contains(&value.as_str()) {
+                        args.model_size = value;
                     } else {
-                        eprintln!("Error: Invalid model size '{}'. Valid options are: {:?}", size, VALID_MODELS);
-                        eprintln!("Using default model: {}", DEFAULT_MODEL);
+                        error!("Invalid model size: {}", value);
+                        error!("Valid models: {:?}", VALID_MODELS);
                     }
+                    i += 2;
                 } else {
-                    eprintln!("Error: --model-size requires a value");
-                    eprintln!("Using default model: {}", DEFAULT_MODEL);
+                    error!("Missing value for --model-size");
+                    i += 1;
                 }
             },
             "--long-press-threshold" | "--lpt" => {
-                if i + 1 < args.len() {
-                    if let Ok(threshold) = args[i + 1].parse::<u64>() {
-                        if threshold > 0 {
-                            config.long_press_threshold = threshold;
-                            i += 1;
-                        } else {
-                            eprintln!("Error: Long press threshold must be > 0");
-                        }
+                if let Some(value) = std::env::args().nth(i + 1) {
+                    if let Ok(val) = value.parse::<u64>() {
+                        args.long_press_threshold = val;
                     } else {
-                        eprintln!("Error: Long press threshold must be a number");
+                        error!("Invalid value for long press threshold: {}", value);
                     }
+                    i += 2;
                 } else {
-                    eprintln!("Error: --long-press-threshold requires a value");
+                    error!("Missing value for --long-press-threshold");
+                    i += 1;
                 }
             },
             "--headphone-keepalive" | "--hk" => {
-                if i + 1 < args.len() {
-                    if let Ok(interval) = args[i + 1].parse::<u64>() {
-                        config.headphone_keepalive_interval = interval;
-                        i += 1;
+                if let Some(value) = std::env::args().nth(i + 1) {
+                    if let Ok(val) = value.parse::<u64>() {
+                        args.headphone_keepalive_interval = val;
                     } else {
-                        eprintln!("Error: Headphone keepalive interval must be a number");
+                        error!("Invalid value for headphone keepalive interval: {}", value);
                     }
+                    i += 2;
                 } else {
-                    eprintln!("Error: --headphone-keepalive requires a value");
+                    error!("Missing value for --headphone-keepalive");
+                    i += 1;
                 }
             },
-            "--help" | "-h" => {
-                println!("Push to Whisper - Speech to Text Tool");
-                println!("Usage: push-to-whisper [OPTIONS]");
-                println!("Options:");
-                println!("  --no-beep, --quiet, -q    Disable beep sounds");
-                println!("  --no-tray                 Disable system tray");
-                println!("  --no-visual               Disable visual feedback");
-                println!("  --debug-recording         Enable saving debug recording to file");
-                println!("  --no-debug-recording      Disable saving debug recording to file");
-                println!("  --model-size, -m <size>   Set the model size (tiny.en, base.en, small.en, medium.en, large)");
-                println!("                            Default: {}", DEFAULT_MODEL);
-                println!("  --long-press-threshold, --lpt <ms>  Set the long press threshold in milliseconds");
-                println!("                            Default: {}", DEFAULT_LONG_PRESS_THRESHOLD);
-                println!("  --headphone-keepalive, --hk <sec>   Set the headphone keepalive interval in seconds");
-                println!("                            Default: {}, 0 to disable", DEFAULT_HEADPHONE_KEEPALIVE_INTERVAL);
-                println!("  --help, -h                Show this help message");
-                println!("");
-                println!("Configuration:");
-                println!("  Settings can also be specified in the {} file", CONFIG_FILE_PATH);
-                println!("  Command line arguments override settings in the config file");
-                std::process::exit(0);
-            }
+            "--debug-recording" => {
+                args.enable_debug_recording = true;
+                i += 1;
+            },
+            "--no-debug-recording" => {
+                args.enable_debug_recording = false;
+                i += 1;
+            },
+            "--force-cpu" | "--no-gpu" => {
+                args.force_cpu = true;
+                i += 1;
+            },
             _ => {
-                eprintln!("Warning: Unknown argument: {}", args[i]);
-                eprintln!("Use --help to see available options");
+                // Unknown argument, ignore
+                i += 1;
             }
         }
-        i += 1;
     }
-
-    info!("Using model size: {}", config.model_size);
-    info!("Long press threshold: {}ms", config.long_press_threshold);
-    info!("Headphone keepalive interval: {}s", config.headphone_keepalive_interval);
-    info!("Debug recording: {}", if config.enable_debug_recording { "enabled" } else { "disabled" });
     
-    // Store the config for later access
-    *CONFIG.lock().unwrap() = Some(config.clone());
-    
-    config
+    args
 }
 
 /// Get the current configuration
@@ -377,6 +363,7 @@ pub fn get_config() -> Args {
             long_press_threshold: DEFAULT_LONG_PRESS_THRESHOLD,
             headphone_keepalive_interval: DEFAULT_HEADPHONE_KEEPALIVE_INTERVAL,
             enable_debug_recording: DEFAULT_ENABLE_DEBUG_RECORDING,
+            force_cpu: false,
         }
     }
 } 

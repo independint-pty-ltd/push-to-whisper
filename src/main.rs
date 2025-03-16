@@ -75,6 +75,21 @@ async fn main() -> Result<()> {
     // Initialize the application
     init_app(&args).await.context("Failed to initialize application")?;
     
+    // Display acceleration mode information
+    if whisper::is_cuda_available() {
+        if whisper::is_using_cpu_fallback() {
+            warn!("CUDA is available but using CPU fallback due to initialization failure");
+        } else {
+            info!("Using GPU acceleration with CUDA");
+        }
+    } else {
+        if args.force_cpu {
+            info!("Using CPU mode (forced by configuration)");
+        } else {
+            info!("Using CPU mode (CUDA not available)");
+        }
+    }
+    
     // Initialize the system tray
     if !args.disable_tray {
         update_tray_icon(false);

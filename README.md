@@ -45,6 +45,7 @@ push-to-whisper.exe --no-tray    # Disable system tray
 push-to-whisper.exe --no-visual  # Disable visual feedback
 push-to-whisper.exe --model-size tiny.en  # Use a smaller, faster model
 push-to-whisper.exe -m medium.en  # Short form for model size option
+push-to-whisper.exe --force-cpu  # Force CPU mode (disable GPU acceleration)
 ```
 
 ## Configuration
@@ -99,6 +100,10 @@ push-to-whisper.exe --hk 0  # Short form to disable
 # Enable or disable debug recording (saves audio to debug_recording.wav)
 push-to-whisper.exe --debug-recording     # Enable
 push-to-whisper.exe --no-debug-recording  # Disable
+
+# Force CPU mode (disable GPU acceleration)
+push-to-whisper.exe --force-cpu     # Force CPU mode
+push-to-whisper.exe --no-gpu        # Alternative syntax
 ```
 
 ## Model Sizes
@@ -126,6 +131,7 @@ Models with ".en" suffix are optimized for English only. The "large" model suppo
 - **Performance issues**: Try a smaller model with `--model-size tiny.en` or `--model-size base.en`
 - **Text insertion problems**: Make sure your cursor is in a text field
 - **Non-English languages**: Use the large model with `--model-size large` for non-English transcription
+- **CUDA/GPU issues**: If you experience crashes or errors related to GPU acceleration, use `--force-cpu` to run in CPU-only mode
 
 ## Building from Source (For Developers)
 

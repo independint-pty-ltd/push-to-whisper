@@ -1,22 +1,26 @@
 use anyhow::Result;
-use log::info;
+use log::{info, warn, error};
 use parking_lot::Mutex;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 use once_cell::sync::Lazy;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::error::AppError;
 use super::model::ensure_model_exists;
-use crate::utils::DEFAULT_MODEL;
+use crate::utils::{DEFAULT_MODEL, get_config};
 
 // Global state
 static WHISPER_CONTEXT: Lazy<Mutex<Option<WhisperContext>>> = Lazy::new(|| Mutex::new(None));
 static MODEL_SIZE_USED: Lazy<Mutex<String>> = Lazy::new(|| Mutex::new(DEFAULT_MODEL.to_string()));
+static USING_CPU_FALLBACK: AtomicBool = AtomicBool::new(false);
+static CUDA_AVAILABLE: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, Clone)]
 pub struct WhisperConfig {
     pub model_size: String,
     pub language: String,
     pub translate: bool,
+    pub force_cpu: bool,
 }
 
 impl Default for WhisperConfig {
@@ -25,7 +29,90 @@ impl Default for WhisperConfig {
             model_size: DEFAULT_MODEL.to_string(),
             language: "en".to_string(),
             translate: false,
+            force_cpu: false,
         }
+    }
+}
+
+/// Check if CUDA is available and working
+fn check_cuda_availability() -> bool {
+    #[cfg(feature = "cuda")]
+    {
+        // First check if nvidia-smi is available
+        if let Ok(output) = std::process::Command::new("nvidia-smi").output() {
+            if output.status.success() {
+                info!("NVIDIA GPU detected via nvidia-smi");
+                return true;
+            }
+        }
+        
+        // Check for CUDA libraries
+        #[cfg(target_os = "windows")]
+        {
+            use std::path::Path;
+            
+            // Check common CUDA library locations on Windows
+            let cuda_paths = [
+                "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v11.0\\bin\\cudart64_110.dll",
+                "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v11.1\\bin\\cudart64_110.dll",
+                "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v11.2\\bin\\cudart64_110.dll",
+                "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v11.3\\bin\\cudart64_110.dll",
+                "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v11.4\\bin\\cudart64_110.dll",
+                "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v11.5\\bin\\cudart64_110.dll",
+                "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v11.6\\bin\\cudart64_110.dll",
+                "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v11.7\\bin\\cudart64_110.dll",
+                "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v11.8\\bin\\cudart64_110.dll",
+                "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.0\\bin\\cudart64_12.dll",
+                "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.1\\bin\\cudart64_12.dll",
+                "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.2\\bin\\cudart64_12.dll",
+            ];
+            
+            for path in cuda_paths {
+                if Path::new(path).exists() {
+                    info!("CUDA libraries detected at {}", path);
+                    return true;
+                }
+            }
+        }
+        
+        #[cfg(target_os = "linux")]
+        {
+            use std::path::Path;
+            
+            // Check common CUDA library locations on Linux
+            let cuda_paths = [
+                "/usr/local/cuda/lib64/libcudart.so",
+                "/usr/local/cuda-11.0/lib64/libcudart.so",
+                "/usr/local/cuda-11.1/lib64/libcudart.so",
+                "/usr/local/cuda-11.2/lib64/libcudart.so",
+                "/usr/local/cuda-11.3/lib64/libcudart.so",
+                "/usr/local/cuda-11.4/lib64/libcudart.so",
+                "/usr/local/cuda-11.5/lib64/libcudart.so",
+                "/usr/local/cuda-11.6/lib64/libcudart.so",
+                "/usr/local/cuda-11.7/lib64/libcudart.so",
+                "/usr/local/cuda-11.8/lib64/libcudart.so",
+                "/usr/local/cuda-12.0/lib64/libcudart.so",
+                "/usr/local/cuda-12.1/lib64/libcudart.so",
+                "/usr/local/cuda-12.2/lib64/libcudart.so",
+            ];
+            
+            for path in cuda_paths {
+                if Path::new(path).exists() {
+                    info!("CUDA libraries detected at {}", path);
+                    return true;
+                }
+            }
+        }
+        
+        // If we get here, we couldn't find CUDA
+        warn!("CUDA feature is enabled but no CUDA installation detected");
+        return false;
+    }
+    
+    #[cfg(not(feature = "cuda"))]
+    {
+        info!("CUDA feature is not enabled in this build");
+        return false;
     }
 }
 
@@ -48,12 +135,80 @@ pub async fn load_model(model_size: &str) -> Result<()> {
     // Ensure model exists
     let model_path = ensure_model_exists(model_size).await?;
     
-    let ctx = WhisperContext::new_with_params(
-        &model_path.to_string_lossy(),
-        WhisperContextParameters::default()
-    ).map_err(|e| AppError::Whisper(format!("Failed to load model: {}", e)))?;
+    // Check if we should force CPU mode
+    let config = get_config();
+    let force_cpu = config.force_cpu;
     
-    *context = Some(ctx);
+    // Check CUDA availability if not forcing CPU
+    let cuda_available = if force_cpu {
+        info!("Forcing CPU mode as requested in configuration");
+        false
+    } else {
+        let available = check_cuda_availability();
+        CUDA_AVAILABLE.store(available, Ordering::SeqCst);
+        
+        if available {
+            info!("CUDA is available, attempting to use GPU acceleration");
+        } else {
+            info!("CUDA is not available, using CPU mode");
+        }
+        
+        available
+    };
+    
+    // First try with GPU if available and not forcing CPU
+    if cuda_available && !force_cpu {
+        info!("Attempting to load model with GPU acceleration...");
+        
+        match WhisperContext::new_with_params(
+            &model_path.to_string_lossy(),
+            WhisperContextParameters::default()
+        ) {
+            Ok(ctx) => {
+                info!("Successfully loaded model with GPU acceleration");
+                *context = Some(ctx);
+                USING_CPU_FALLBACK.store(false, Ordering::SeqCst);
+            },
+            Err(e) => {
+                warn!("Failed to load model with GPU acceleration: {}", e);
+                warn!("Falling back to CPU mode");
+                
+                // Try again with CPU
+                match WhisperContext::new_with_params(
+                    &model_path.to_string_lossy(),
+                    WhisperContextParameters::default()
+                ) {
+                    Ok(ctx) => {
+                        info!("Successfully loaded model in CPU fallback mode");
+                        *context = Some(ctx);
+                        USING_CPU_FALLBACK.store(true, Ordering::SeqCst);
+                    },
+                    Err(e) => {
+                        error!("Failed to load model even in CPU fallback mode: {}", e);
+                        return Err(AppError::Whisper(format!("Failed to load model: {}", e)).into());
+                    }
+                }
+            }
+        }
+    } else {
+        // Directly use CPU mode
+        info!("Loading model in CPU mode...");
+        
+        match WhisperContext::new_with_params(
+            &model_path.to_string_lossy(),
+            WhisperContextParameters::default()
+        ) {
+            Ok(ctx) => {
+                info!("Successfully loaded model in CPU mode");
+                *context = Some(ctx);
+                USING_CPU_FALLBACK.store(true, Ordering::SeqCst);
+            },
+            Err(e) => {
+                error!("Failed to load model in CPU mode: {}", e);
+                return Err(AppError::Whisper(format!("Failed to load model: {}", e)).into());
+            }
+        }
+    }
     
     // Update the model size used
     let mut current_model = MODEL_SIZE_USED.lock();
@@ -61,6 +216,16 @@ pub async fn load_model(model_size: &str) -> Result<()> {
     
     info!("Whisper model {} loaded successfully", model_size);
     Ok(())
+}
+
+/// Returns true if the model is currently using CPU fallback mode
+pub fn is_using_cpu_fallback() -> bool {
+    USING_CPU_FALLBACK.load(Ordering::SeqCst)
+}
+
+/// Returns true if CUDA is available on the system
+pub fn is_cuda_available() -> bool {
+    CUDA_AVAILABLE.load(Ordering::SeqCst)
 }
 
 pub fn transcribe_audio(audio_data: &[f32]) -> Result<String> {
