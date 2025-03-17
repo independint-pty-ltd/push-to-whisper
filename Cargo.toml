@@ -44,7 +44,9 @@ keyboard-types = "0.7.0"
 rodio = "0.17"
 
 # UI and system tray
-tray-item = { version = "0.10.0", features = [] }
+tray-icon = { version = "0.20.0", features = [] }
+# For icon creation
+image = "0.24"
 
 # Process control
 ctrlc = "3.4.1"
@@ -71,6 +73,11 @@ serde = { version = "1.0", features = ["derive"] }
 winreg = "0.52"
 futures-util = "0.3"
 tokio = { version = "1.0", features = ["full"] }
+egui = "0.26.0"
+eframe = "0.26.0"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.48", features = ["Win32_UI_WindowsAndMessaging"] }
 
 [build-dependencies]
 # For Windows resource embedding

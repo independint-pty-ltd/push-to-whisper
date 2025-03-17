@@ -2,6 +2,7 @@ use std::env;
 use std::path::PathBuf;
 use std::fs;
 use std::path::Path;
+use std::io;
 
 fn main() {
     println!("cargo:rerun-if-env-changed=CUDA_PATH");
@@ -100,15 +101,159 @@ fn main() {
             fs::create_dir_all(icons_dir).expect("Failed to create icons directory");
         }
 
+        // Save icon data to files
+        // We need to include the icon data directly in the build script
+        // since we can't import from src/ui/ico_data.rs
+        
+        // Normal icon data (first few bytes for identification)
+        let normal_icon_header = &[
+            0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x10, 0x10, 0x00, 0x00, 0x01, 0x00, 0x08, 0x00, 0x68, 0x05,
+            0x00, 0x00, 0x16, 0x00, 0x00, 0x00, 0x28, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x20, 0x00,
+            0x00, 0x00, 0x01, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            // Transparent Color
+            0x00, 0x00, 0x00, 0x00,
+            // Gray Color (for inactive state)
+            0x80, 0x80, 0x80, 0x00,
+        ];
+        
+        // Recording icon data (first few bytes for identification)
+        let recording_icon_header = &[
+            0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x10, 0x10, 0x00, 0x00, 0x01, 0x00, 0x08, 0x00, 0x68, 0x05,
+            0x00, 0x00, 0x16, 0x00, 0x00, 0x00, 0x28, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x20, 0x00,
+            0x00, 0x00, 0x01, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            // Transparent Color
+            0x00, 0x00, 0x00, 0x00,
+            // Red Color (for active/recording state)
+            0x00, 0x00, 0xFF, 0x00,
+        ];
+        
+        // Transcribing icon data (first few bytes for identification)
+        let transcribing_icon_header = &[
+            0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x10, 0x10, 0x00, 0x00, 0x01, 0x00, 0x08, 0x00, 0x68, 0x05,
+            0x00, 0x00, 0x16, 0x00, 0x00, 0x00, 0x28, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x20, 0x00,
+            0x00, 0x00, 0x01, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            // Transparent Color
+            0x00, 0x00, 0x00, 0x00,
+            // Orange Color (for transcribing/processing state)
+            0x00, 0x80, 0xFF, 0x00,
+        ];
+        
+        // Check if the icon files already exist, and if not, copy them from the src directory
+        let normal_icon_path = icons_dir.join("normal_icon.ico");
+        let recording_icon_path = icons_dir.join("recording_icon.ico");
+        let transcribing_icon_path = icons_dir.join("transcribing_icon.ico");
+        
+        // If the icon files don't exist or are empty, copy them from the src directory
+        if !normal_icon_path.exists() || fs::metadata(&normal_icon_path).map(|m| m.len() == 0).unwrap_or(true) {
+            println!("cargo:warning=Creating normal icon file");
+            // We'll use a placeholder icon since we can't access the actual icon data
+            // The actual icon data will be loaded at runtime from src/ui/ico_data.rs
+            fs::write(&normal_icon_path, normal_icon_header).expect("Failed to write normal icon file");
+        }
+        
+        if !recording_icon_path.exists() || fs::metadata(&recording_icon_path).map(|m| m.len() == 0).unwrap_or(true) {
+            println!("cargo:warning=Creating recording icon file");
+            fs::write(&recording_icon_path, recording_icon_header).expect("Failed to write recording icon file");
+        }
+        
+        if !transcribing_icon_path.exists() || fs::metadata(&transcribing_icon_path).map(|m| m.len() == 0).unwrap_or(true) {
+            println!("cargo:warning=Creating transcribing icon file");
+            fs::write(&transcribing_icon_path, transcribing_icon_header).expect("Failed to write transcribing icon file");
+        }
+
         // Write the resource file
         let resource_content = r#"#include <windows.h>
 
 normal-icon ICON "icons/normal_icon.ico"
 recording-icon ICON "icons/recording_icon.ico"
+transcribing-icon ICON "icons/transcribing_icon.ico"
 "#;
         fs::write("resources.rc", resource_content).expect("Failed to write resource file");
 
         // Compile the resource file on Windows
         embed_resource::compile("resources.rc", embed_resource::NONE);
     }
+    
+    // Copy models folder to target directory
+    copy_models_folder().expect("Failed to copy models folder");
+}
+
+// Function to copy the models folder to the target directory
+fn copy_models_folder() -> io::Result<()> {
+    let out_dir = env::var("OUT_DIR").expect("Failed to get OUT_DIR");
+    let out_path = PathBuf::from(out_dir);
+    
+    // Navigate up from OUT_DIR to the target directory
+    // OUT_DIR is typically something like target/debug/build/push-to-whisper-{hash}/out
+    // We need to go up 3 levels to get to target/debug
+    let target_dir = out_path
+        .ancestors()
+        .nth(3)
+        .expect("Failed to find target directory")
+        .to_path_buf();
+    
+    println!("cargo:warning=Target directory: {}", target_dir.display());
+    
+    // Source models directory
+    let source_models_dir = Path::new("models");
+    
+    // Target models directory
+    let target_models_dir = target_dir.join("models");
+    
+    // Only copy if source models directory exists
+    if source_models_dir.exists() && source_models_dir.is_dir() {
+        println!("cargo:warning=Copying models from {} to {}", source_models_dir.display(), target_models_dir.display());
+        
+        // Create target models directory if it doesn't exist
+        if !target_models_dir.exists() {
+            fs::create_dir_all(&target_models_dir)?;
+        }
+        
+        // Copy all files from source to target
+        copy_dir_contents(source_models_dir, &target_models_dir)?;
+        
+        println!("cargo:warning=Models copied successfully");
+    } else {
+        println!("cargo:warning=Models directory not found at {}", source_models_dir.display());
+    }
+    
+    Ok(())
+}
+
+// Helper function to recursively copy directory contents
+fn copy_dir_contents(src: &Path, dst: &Path) -> io::Result<()> {
+    if !dst.exists() {
+        fs::create_dir_all(dst)?;
+    }
+    
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+        
+        if ty.is_dir() {
+            copy_dir_contents(&src_path, &dst_path)?;
+        } else {
+            // Only copy if the destination file doesn't exist or is older than the source
+            let should_copy = if dst_path.exists() {
+                let src_metadata = fs::metadata(&src_path)?;
+                let dst_metadata = fs::metadata(&dst_path)?;
+                
+                src_metadata.modified()? > dst_metadata.modified()?
+            } else {
+                true
+            };
+            
+            if should_copy {
+                fs::copy(&src_path, &dst_path)?;
+                println!("cargo:warning=Copied {} to {}", src_path.display(), dst_path.display());
+            }
+        }
+    }
+    
+    Ok(())
 } 

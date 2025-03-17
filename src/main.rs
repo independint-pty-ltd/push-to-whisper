@@ -19,6 +19,7 @@ use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use crossbeam_channel::{bounded, Sender, Receiver, select, tick};
 use simple_logger;
+use ui::AppState;
 
 use crate::{
     audio::{start_recording, stop_recording, play_beep_blocking, list_audio_devices, headphone_keepalive_thread},
@@ -92,8 +93,11 @@ async fn main() -> Result<()> {
     
     // Initialize the system tray
     if !args.disable_tray {
-        update_tray_icon(false);
-        info!("System tray icon initialized successfully");
+        if let Err(e) = ui::init_tray_icon() {
+            warn!("Failed to initialize system tray: {}", e);
+        } else {
+            info!("System tray icon initialized successfully");
+        }
     }
     
     // Start headphone keepalive thread if enabled
@@ -112,8 +116,10 @@ async fn main() -> Result<()> {
         }
     });
     
-    // Main event loop
+    // Main application loop
     let ticker = tick(Duration::from_millis(100));
+    let mut last_app_state = AppState::Normal;
+    
     loop {
         select! {
             recv(ticker) -> _ => {
@@ -123,9 +129,26 @@ async fn main() -> Result<()> {
                     break;
                 }
                 
-                // Update tray icon based on recording state
+                // Update tray icon based on application state
                 if !args.disable_tray {
-                    update_tray_icon(RECORDING.load(Ordering::SeqCst));
+                    let is_recording = audio::is_recording();
+                    let is_transcribing = audio::is_transcribing();
+                    
+                    let app_state = if is_recording {
+                        AppState::Recording
+                    } else if is_transcribing {
+                        AppState::Transcribing
+                    } else {
+                        AppState::Normal
+                    };
+                    
+                    // Only log and update if the state has changed
+                    if app_state != last_app_state {
+                        info!("Application state changed - Recording: {}, Transcribing: {}, State: {:?} -> {:?}", 
+                              is_recording, is_transcribing, last_app_state, app_state);
+                        last_app_state = app_state;
+                        update_tray_icon(app_state);
+                    }
                 }
             }
         }

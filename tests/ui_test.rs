@@ -1,5 +1,6 @@
 use anyhow::Result;
 use push_to_whisper::ui;
+use push_to_whisper::ui::AppState;
 
 // This test checks the UI module's tray icon functionality
 // It's a basic test that just ensures the function doesn't crash
@@ -7,8 +8,9 @@ use push_to_whisper::ui;
 fn test_tray_icon_update() -> Result<()> {
     // Test updating the tray icon
     // This is a simple test that just makes sure the function doesn't crash
-    ui::update_tray_icon(false);
-    ui::update_tray_icon(true);
+    ui::update_tray_icon(AppState::Normal);
+    ui::update_tray_icon(AppState::Recording);
+    ui::update_tray_icon(AppState::Transcribing);
     
     // If we got here without crashing, the test passes
     Ok(())
@@ -26,9 +28,9 @@ fn test_tray_icon_init() -> Result<()> {
     assert!(result.is_ok(), "init_tray_icon should not fail");
     
     // Update the tray icon a few times
-    ui::update_tray_icon(false);
-    ui::update_tray_icon(true);
-    ui::update_tray_icon(false);
+    ui::update_tray_icon(AppState::Normal);
+    ui::update_tray_icon(AppState::Recording);
+    ui::update_tray_icon(AppState::Transcribing);
     
     // If we got here without crashing, the test passes
     Ok(())

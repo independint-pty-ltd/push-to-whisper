@@ -8,6 +8,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 use once_cell::sync::Lazy;
+use std::sync::Arc;
+use std::fs::File;
+use std::io::Write;
 
 use crate::error::AppError;
 use crate::utils::get_config;
@@ -17,6 +20,9 @@ const SAMPLE_RATE: u32 = 16000;
 const CHANNELS: u16 = 1;
 const KEEP_HEADPHONES_ALIVE: bool = true;
 const HEADPHONE_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(30);
+
+// Global state for transcribing status
+static TRANSCRIBING: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, Clone)]
 pub struct AudioConfig {
@@ -273,6 +279,9 @@ fn process_audio_for_whisper(audio_data: Vec<f32>, sample_rate: u32, channels: u
 
 // Helper function to process transcription
 fn process_transcription(audio_data: Vec<f32>) -> Result<()> {
+    // Set transcribing state to true
+    TRANSCRIBING.store(true, Ordering::SeqCst);
+    
     // Process with Whisper
     info!("Processing speech with Whisper...");
     let transcription = crate::whisper::transcribe_audio(&audio_data)
@@ -286,7 +295,15 @@ fn process_transcription(audio_data: Vec<f32>) -> Result<()> {
         warn!("Empty transcription result");
     }
     
+    // Set transcribing state back to false
+    TRANSCRIBING.store(false, Ordering::SeqCst);
+    
     Ok(())
+}
+
+// Add a function to get the transcribing state
+pub fn is_transcribing() -> bool {
+    TRANSCRIBING.load(Ordering::SeqCst)
 }
 
 fn audio_recording_thread() -> Result<()> {

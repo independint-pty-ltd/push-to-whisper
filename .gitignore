@@ -6,6 +6,7 @@ debug/
 
 # Whisper model files
 models/*.bin
+models/
 !models/.gitkeep
 
 # Audio files
