@@ -88,7 +88,7 @@ async fn main() -> Result<()> {
     
     // Initialize the system tray
     if !args.disable_tray {
-        update_tray_icon(false);
+        update_tray_icon(ui::AppState::Normal);
         info!("System tray icon initialized successfully");
     }
     
@@ -110,6 +110,19 @@ async fn main() -> Result<()> {
     
     // Main event loop
     let ticker = tick(Duration::from_millis(100));
+    
+    // Track last known state to avoid unnecessary updates
+    let mut last_known_state = if RECORDING.load(Ordering::SeqCst) {
+        ui::AppState::Recording
+    } else {
+        ui::AppState::Normal
+    };
+    
+    // Initial tray update
+    if !args.disable_tray {
+        update_tray_icon(last_known_state);
+    }
+    
     loop {
         select! {
             recv(ticker) -> _ => {
@@ -119,9 +132,16 @@ async fn main() -> Result<()> {
                     break;
                 }
                 
-                // Update tray icon based on recording state
-                if !args.disable_tray {
-                    update_tray_icon(RECORDING.load(Ordering::SeqCst));
+                // Only update tray icon when state changes
+                let current_state = if RECORDING.load(Ordering::SeqCst) {
+                    ui::AppState::Recording
+                } else {
+                    ui::AppState::Normal
+                };
+                
+                if !args.disable_tray && current_state != last_known_state {
+                    update_tray_icon(current_state);
+                    last_known_state = current_state;
                 }
             }
         }

@@ -10,5 +10,4 @@ pub mod whisper;
 pub use error::AppError;
 pub use audio::AudioConfig;
 pub use whisper::WhisperConfig;
-pub use ui::TrayConfig;
 pub use input::InputConfig; 

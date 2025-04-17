@@ -13,7 +13,7 @@ use std::fs;
 pub const LOCK_FILE_PATH: &str = "push-to-whisper.lock";
 pub const CONFIG_FILE_PATH: &str = "push-to-whisper.config";
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Args {
     pub disable_beep: bool,
     pub disable_tray: bool,
@@ -27,7 +27,7 @@ pub struct Args {
 }
 
 // Global state
-static EXIT_REQUESTED: AtomicBool = AtomicBool::new(false);
+pub static EXIT_REQUESTED: AtomicBool = AtomicBool::new(false);
 static IGNORE_EXIT_UNTIL: AtomicBool = AtomicBool::new(false);
 static INSTANCE_LOCK: OnceCell<File> = OnceCell::new();
 static CONFIG: once_cell::sync::Lazy<std::sync::Mutex<Option<Args>>> = 
@@ -449,4 +449,63 @@ pub fn get_config() -> Args {
             beep_volume: DEFAULT_BEEP_VOLUME,
         }
     }
+}
+
+/// Save the provided configuration to the config file
+pub fn save_config(args: &Args) -> Result<()> {
+    let config_path = Path::new(CONFIG_FILE_PATH);
+    
+    // Create a string representation of the config
+    let config_content = format!(
+        "# Push-to-Whisper Configuration File\n\
+        # Edit this file to change default settings\n\
+        # Command line arguments will override these settings\n\
+        \n\
+        # Audio feedback (true/false)\n\
+        enable_beep = {}\n\
+        \n\
+        # System tray icon (true/false)\n\
+        enable_tray = {}\n\
+        \n\
+        # Visual feedback (true/false)\n\
+        enable_visual = {}\n\
+        \n\
+        # Whisper model size (tiny.en, base.en, small.en, medium.en, large)\n\
+        model_size = {}\n\
+        \n\
+        # Long press threshold in milliseconds (how long to hold the key before recording starts)\n\
+        long_press_threshold = {}\n\
+        \n\
+        # Headphone keepalive interval in seconds (prevents wireless headphones from disconnecting)\n\
+        # Set to 0 to disable\n\
+        headphone_keepalive_interval = {}\n\
+        \n\
+        # Debug recording (true/false)\n\
+        # Saves audio to debug_recording.wav for troubleshooting\n\
+        enable_debug_recording = {}\n\
+        \n\
+        # Force CPU mode (true/false)\n\
+        # Set to true to disable GPU acceleration and use CPU only\n\
+        force_cpu = {}\n\
+        \n\
+        # Beep volume (0.0 to 1.0)\n\
+        beep_volume = {}\n",
+        !args.disable_beep,
+        !args.disable_tray,
+        !args.disable_visual,
+        args.model_size,
+        args.long_press_threshold,
+        args.headphone_keepalive_interval,
+        args.enable_debug_recording,
+        args.force_cpu,
+        args.beep_volume
+    );
+    
+    // Write the config to the file
+    fs::write(config_path, config_content)?;
+    
+    // Update the global config
+    *CONFIG.lock().unwrap() = Some(args.clone());
+    
+    Ok(())
 } 
