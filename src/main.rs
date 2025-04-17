@@ -8,24 +8,20 @@ mod model;
 
 use anyhow::{Result, Context};
 use log::{error, info, warn};
-use rdev::Event;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::fs;
 use std::path::Path;
-use std::sync::Arc;
-use once_cell::sync::Lazy;
-use parking_lot::Mutex;
-use crossbeam_channel::{bounded, Sender, Receiver, select, tick};
+use crossbeam_channel::{select, tick};
 use simple_logger;
 
 use crate::{
-    audio::{start_recording, stop_recording, play_beep_blocking, list_audio_devices, headphone_keepalive_thread},
-    whisper::{transcribe_audio, load_model},
+    audio::{list_audio_devices, headphone_keepalive_thread},
+    whisper::load_model,
     ui::update_tray_icon,
-    input::{handle_keyboard_event, start_keyboard_listener},
-    utils::{acquire_instance_lock, parse_args, request_exit, Args},
+    input::start_keyboard_listener,
+    utils::{acquire_instance_lock, parse_args, Args},
 };
 
 // Configuration constants

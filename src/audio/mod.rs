@@ -6,7 +6,7 @@ use parking_lot::Mutex;
 use rodio::{source::SineWave, OutputStream, Sink, Source};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use once_cell::sync::Lazy;
 
 use crate::error::AppError;
@@ -39,49 +39,55 @@ impl Default for AudioConfig {
 
 // Global state
 static RECORDING: AtomicBool = AtomicBool::new(false);
-static AUDIO_BUFFER: Lazy<Mutex<Vec<f32>>> = Lazy::new(|| Mutex::new(Vec::with_capacity(SAMPLE_RATE as usize * 60)));
+static AUDIO_BUFFER: Lazy<Mutex<Vec<f32>>> = Lazy::new(|| Mutex::new(Vec::with_capacity(SAMPLE_RATE as usize * 300)));
 
 // Helper function to update activity time
 fn update_activity_time() {
     crate::input::update_activity_time();
 }
 
-// Helper function to play a blocking beep
-pub fn play_beep_blocking(frequency: u32, duration_ms: u64) -> Result<()> {
+// Helper function to play a beep asynchronously
+pub fn play_beep_async(frequency: u32, duration_ms: u64) -> Result<()> {
     // Check if beeps are disabled in config
     let config = get_config();
     if config.disable_beep {
-        info!("Beep sounds disabled in config, skipping beep at {}Hz", frequency);
+        // Don't log here, as it might be called frequently when disabled
         return Ok(());
     }
-    
-    info!("Playing blocking beep at {}Hz for {}ms", frequency, duration_ms);
-    
-    // Create a new audio output stream for the beep
-    let (_stream, stream_handle) = OutputStream::try_default()
-        .map_err(|e| anyhow::anyhow!("Failed to open audio output stream: {}", e))?;
-    
-    // Create a sink for the beep
-    let sink = Sink::try_new(&stream_handle)
-        .map_err(|e| anyhow::anyhow!("Failed to create audio sink: {}", e))?;
-    
-    // Create a sine wave source with configured volume
-    let source = SineWave::new(frequency as f32)
-        .take_duration(Duration::from_millis(duration_ms))
-        .amplify(config.beep_volume); // Use configured volume
-    
-    // Add the source to the sink
-    sink.append(source);
-    
-    // Set the volume
-    sink.set_volume(config.beep_volume); // Use configured volume
-    
-    // Wait for the beep to finish - this blocks the thread
-    info!("Waiting for beep to complete...");
-    sink.sleep_until_end();
-    
-    info!("Beep completed");
-    Ok(())
+
+    let beep_volume = config.beep_volume; // Capture volume for the thread
+
+    info!("Playing async beep at {}Hz for {}ms", frequency, duration_ms);
+
+    // Spawn a new thread to handle blocking audio playback
+    thread::spawn(move || {
+        match OutputStream::try_default() {
+            Ok((_stream, stream_handle)) => {
+                match Sink::try_new(&stream_handle) {
+                    Ok(sink) => {
+                        let source = SineWave::new(frequency as f32)
+                            .take_duration(Duration::from_millis(duration_ms))
+                            .amplify(beep_volume); // Use configured volume
+
+                        sink.append(source);
+                        sink.set_volume(beep_volume); // Use configured volume
+
+                        // Wait for the beep to finish - this blocks the *new* thread
+                        sink.sleep_until_end();
+                        // info!("Async beep completed"); // Optional: Log completion if needed
+                    }
+                    Err(e) => {
+                        warn!("Failed to create audio sink for async beep: {}", e);
+                    }
+                }
+            }
+            Err(e) => {
+                warn!("Failed to open audio output stream for async beep: {}", e);
+            }
+        }
+    });
+
+    Ok(()) // Return immediately after spawning the thread
 }
 
 pub fn is_recording() -> bool {
@@ -103,17 +109,13 @@ pub fn start_recording() -> Result<()> {
     let config = get_config();
     let beeps_enabled = !config.disable_beep;
     
-    let beep_result = play_beep_blocking(1000, 600);
+    // Play beep asynchronously with reduced duration
+    let beep_result = play_beep_async(1000, 150); // Reduced duration from 600ms to 150ms
     if let Err(e) = &beep_result {
-        warn!("Failed to play start beep: {}", e);
+        // Log error if spawning the beep thread failed
+        warn!("Failed to start async start beep: {}", e);
     } else if beeps_enabled {
-        info!("Start beep completed successfully");
-    }
-    
-    if beeps_enabled {
-        thread::sleep(Duration::from_millis(300));
-    } else {
-        thread::sleep(Duration::from_millis(100));
+        info!("Start beep initiated asynchronously");
     }
     
     info!("▶️ RECORDING STARTED ▶️");
@@ -143,16 +145,17 @@ pub fn stop_recording() -> Result<()> {
     
     // Play a beep to indicate recording has stopped
     info!("Playing stop recording beep");
-    let beep_result = play_beep_blocking(800, 600); // Different tone from start beep
+    // Play beep asynchronously with reduced duration
+    let beep_result = play_beep_async(800, 150); // Reduced duration from 600ms to 150ms
     if let Err(e) = &beep_result {
-        warn!("Failed to play stop beep: {}", e);
+        warn!("Failed to start async stop beep: {}", e);
     } else {
-        // Get config to check if beeps are enabled
+        // Get config to check if beeps are enabled (check again in case it changed)
         let config = get_config();
         let beeps_enabled = !config.disable_beep;
-        
+
         if beeps_enabled {
-            info!("Stop beep completed successfully");
+            info!("Stop beep initiated asynchronously");
         }
     }
     

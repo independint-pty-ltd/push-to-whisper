@@ -1,7 +1,6 @@
 use anyhow::Result;
 use std::path::Path;
 use push_to_whisper::whisper;
-use push_to_whisper::audio;
 
 const TEST_AUDIO_FILE: &str = "tests/fixtures/harvard.wav";
 

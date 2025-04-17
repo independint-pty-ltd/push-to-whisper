@@ -1,8 +1,8 @@
 use anyhow::{Result, Context};
-use log::{info, warn, error};
-use std::path::{Path, PathBuf};
+use log::info;
+use std::path::PathBuf;
 use std::fs;
-use std::io::{self, Write};
+use std::io::{Write};
 use reqwest::Client;
 use indicatif::{ProgressBar, ProgressStyle};
 use futures_util::StreamExt;

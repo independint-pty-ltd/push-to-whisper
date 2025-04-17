@@ -7,6 +7,9 @@ use std::fs;
 use std::path::PathBuf;
 
 mod ico_data;
+mod settings;
+
+// Re-export settings module functions
 
 // Configuration constants
 pub const ENABLE_SYSTEM_TRAY: bool = true;
@@ -45,49 +48,13 @@ pub fn init_tray_icon() -> Result<()> {
     if !ENABLE_SYSTEM_TRAY {
         return Ok(());
     }
-
-    // Save icons to files (needed for Windows resource compilation)
-    let _normal_icon_path = save_icon_data(ico_data::NORMAL_ICON_DATA, "normal_icon.ico")?;
-    let _recording_icon_path = save_icon_data(ico_data::RECORDING_ICON_DATA, "recording_icon.ico")?;
-
-    // Create the icon source based on platform
-    #[cfg(target_os = "windows")]
-    let icon_source = {
-        // On Windows, use our custom resource defined in resources.rc
-        IconSource::Resource("normal-icon")
-    };
-
-    #[cfg(target_os = "macos")]
-    let icon_source = {
-        // On macOS, we can use the file path
-        IconSource::File(normal_icon_path.to_str().unwrap().to_string())
-    };
-
-    #[cfg(all(target_os = "linux", feature = "ksni"))]
-    let icon_source = {
-        // On Linux with ksni, we can use the file path
-        IconSource::File(normal_icon_path.to_str().unwrap().to_string())
-    };
-
-    #[cfg(all(target_os = "linux", feature = "libappindicator"))]
-    let icon_source = {
-        // On Linux with libappindicator, we use a resource name
-        IconSource::Resource("accessories-calculator")
-    };
-
-    #[cfg(not(any(
-        target_os = "windows",
-        target_os = "macos",
-        all(target_os = "linux", feature = "ksni"),
-        all(target_os = "linux", feature = "libappindicator")
-    )))]
-    let icon_source = {
-        // Fallback for other platforms
-        IconSource::Resource("")
-    };
-
-    let mut tray = TrayItem::new("Push to Whisper", icon_source)?;
-
+    
+    // Create the initial icon (blue for normal state)
+    let icon = create_icon([30, 144, 255, 255])?;
+    
+    // Create the menu
+    let menu = Menu::new();
+    
     // Add menu items
     tray.add_menu_item("Quit", || {
         crate::utils::request_exit();

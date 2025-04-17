@@ -1,13 +1,12 @@
 use anyhow::Result;
 use clipboard::{ClipboardContext, ClipboardProvider};
 use enigo::{Enigo, Key, KeyboardControllable};
-use log::{error, info, debug, warn};
+use log::{error, info, warn};
 use rdev::{Event, EventType, Key as RdevKey};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Instant, SystemTime, UNIX_EPOCH, Duration};
 use std::thread;
 
-use crate::error::AppError;
 use crate::utils::request_exit;
 
 // Configuration

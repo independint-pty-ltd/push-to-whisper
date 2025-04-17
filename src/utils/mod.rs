@@ -2,14 +2,12 @@ use anyhow::{anyhow, Result};
 use log::{error, info};
 use once_cell::sync::OnceCell;
 use std::fs::{File, OpenOptions};
-use std::io::ErrorKind;
 use std::sync::atomic::AtomicBool;
 use std::process::Command;
 use std::path::Path;
 use std::io::Read;
 use std::fs;
 
-use crate::error::AppError;
 
 // Configuration
 pub const LOCK_FILE_PATH: &str = "push-to-whisper.lock";

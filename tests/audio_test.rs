@@ -1,8 +1,8 @@
 use anyhow::{Result, Context};
 use std::path::Path;
 use std::fs;
-use std::time::Duration;
 use push_to_whisper::audio;
+use log::info;
 
 // This test module focuses on audio functionality without requiring actual microphone input
 // It uses mocked audio data to test the processing pipeline
@@ -44,8 +44,8 @@ fn test_audio_processing() -> Result<()> {
     
     // Test the beep function (just make sure it doesn't crash)
     // This is a non-blocking test that doesn't actually play sound
-    let result = audio::play_beep_blocking(440, 10);
-    assert!(result.is_ok(), "play_beep_blocking should not fail");
+    let result = audio::play_beep_async(440, 10); // Use the new async function
+    assert!(result.is_ok(), "play_beep_async should not fail immediately");
     
     // Clean up
     if Path::new(TEST_OUTPUT_FILE).exists() {
@@ -99,4 +99,15 @@ fn save_audio_to_wav(audio_data: &[f32], sample_rate: u32, path: &str) -> Result
     writer.finalize().context("Failed to finalize WAV file")?;
     
     Ok(())
+}
+
+#[test]
+fn test_play_beep_async() {
+    // This test might be flaky in headless environments or CI without audio output
+    // It primarily ensures the function call doesn't panic
+    info!("Testing asynchronous beep playback...");
+    let result = audio::play_beep_async(440, 10); // Use the new async function
+    assert!(result.is_ok(), "play_beep_async should not return an error immediately");
+    // We can't easily assert the beep played without more complex audio capture,
+    // but we can wait a short time to allow the thread to potentially run and finish.
 } 
