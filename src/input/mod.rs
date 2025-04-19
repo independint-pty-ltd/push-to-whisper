@@ -8,6 +8,10 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH, Duration};
 use std::thread;
 
 use crate::utils::request_exit;
+use crate::error::AppError;
+use crate::state::send_state_update;
+use crate::state::RECORDING;
+use crate::ui::AppState;
 
 // Configuration
 pub const HOTKEY: RdevKey = RdevKey::ControlRight; // Using Right Control key as hotkey
@@ -47,7 +51,6 @@ static LAST_ESC_PRESS: AtomicU64 = AtomicU64::new(0);
 static HOTKEY_PRESS_TIME: AtomicU64 = AtomicU64::new(0);
 static HOTKEY_DOWN: AtomicBool = AtomicBool::new(false);
 static KEY_HANDLED: AtomicBool = AtomicBool::new(false);
-static RECORDING_STARTED: AtomicBool = AtomicBool::new(false);
 static IGNORE_EXIT_UNTIL: AtomicU64 = AtomicU64::new(0);
 
 fn get_current_time_ms() -> u64 {
@@ -62,49 +65,43 @@ pub fn update_activity_time() {
 }
 
 pub fn handle_keyboard_event(event: Event) -> Result<()> {
-    // Get current time in milliseconds
     let now_ms = Instant::now().elapsed().as_millis() as u64;
     
     match event.event_type {
         EventType::KeyPress(key) => {
-            // Only handle Right Control key if it's the first press or a different key
             if key == HOTKEY && !KEY_HANDLED.load(Ordering::SeqCst) {
-                info!("Right Control key first press detected");
                 KEY_HANDLED.store(true, Ordering::SeqCst);
                 
-                // If we're not already recording and the hotkey isn't marked as down
-                if !crate::audio::is_recording() && !HOTKEY_DOWN.load(Ordering::SeqCst) {
-                    info!("Right Control key pressed - waiting for long press threshold");
-                    // Record the time when Right Control key was first pressed
+                if !RECORDING.load(Ordering::SeqCst) && !HOTKEY_DOWN.load(Ordering::SeqCst) {
+                    info!("Hotkey pressed - waiting for long press threshold");
                     HOTKEY_PRESS_TIME.store(now_ms, Ordering::SeqCst);
                     HOTKEY_DOWN.store(true, Ordering::SeqCst);
                     
-                    // Get the long press threshold from config
                     let threshold = crate::utils::get_config().long_press_threshold;
                     
-                    // Start a timer thread to check if the key is held long enough
                     thread::spawn(move || {
-                        // Wait until the long press threshold
                         thread::sleep(std::time::Duration::from_millis(threshold));
                         
-                        // Only start recording if the key is still down after threshold time
-                        if HOTKEY_DOWN.load(Ordering::SeqCst) && !crate::audio::is_recording() {
+                        if HOTKEY_DOWN.load(Ordering::SeqCst) && !RECORDING.load(Ordering::SeqCst) {
                             info!("Long press threshold reached - starting recording");
                             if let Err(e) = crate::audio::start_recording() {
                                 error!("Failed to start recording: {}", e);
+                            } else {
+                                // Successfully started recording, update state via channel
+                                RECORDING.store(true, Ordering::SeqCst);
+                                send_state_update(AppState::Recording);
                             }
                         } else {
                             if !HOTKEY_DOWN.load(Ordering::SeqCst) {
                                 info!("Key released before threshold - not recording");
                             }
-                            if crate::audio::is_recording() {
+                            if RECORDING.load(Ordering::SeqCst) {
                                 info!("Already recording - ignoring key press");
                             }
                         }
                     });
                 }
             } 
-            // Always handle Escape key for exit
             else if key == RdevKey::Escape {
                 let now = get_current_time_ms();
                 let last_press = LAST_ESC_PRESS.load(Ordering::SeqCst);
@@ -118,24 +115,36 @@ pub fn handle_keyboard_event(event: Event) -> Result<()> {
             }
         },
         EventType::KeyRelease(key) => {
-            // For key release, reset the handled flag and process accordingly
             if key == HOTKEY {
-                info!("Right Control key released");
+                info!("Hotkey released");
                 KEY_HANDLED.store(false, Ordering::SeqCst);
-                
-                // Mark the key as no longer pressed
                 HOTKEY_DOWN.store(false, Ordering::SeqCst);
                 
-                // If recording, stop it
-                if crate::audio::is_recording() {
-                    info!("Recording in progress - stopping and transcribing");
+                if RECORDING.load(Ordering::SeqCst) {
+                    info!("Stopping recording and starting transcription...");
+                    // Don't update state yet - let the audio module handle it
+                    
+                    // First stop the audio recording while RECORDING flag is still true
                     if let Err(e) = crate::audio::stop_recording() {
                         error!("Failed to stop recording: {}", e);
+                        // If stopping failed, maybe revert state?
+                        send_state_update(AppState::Normal); // Revert to Normal if stop fails
                     }
+                    
+                    // Now we can set the recording flag to false
+                    // This is needed to prevent duplicate stop_recording calls if the user
+                    // presses the key again quickly
+                    RECORDING.store(false, Ordering::SeqCst);
+                    
+                    // The audio::stop_recording function will handle the state transitions:
+                    // 1. AppState::Transcribing when starting transcription
+                    // 2. AppState::Normal when transcription completes
+                } else {
+                    info!("Hotkey released but wasn't recording.");
                 }
             }
         },
-        _ => {} // Ignore other events
+        _ => {} 
     }
     
     Ok(())

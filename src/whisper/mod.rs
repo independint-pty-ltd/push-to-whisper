@@ -229,30 +229,81 @@ pub fn is_cuda_available() -> bool {
 }
 
 pub fn transcribe_audio(audio_data: &[f32]) -> Result<String> {
+    info!("Starting whisper transcription with {} audio samples", audio_data.len());
+    
+    if audio_data.is_empty() {
+        error!("Empty audio data passed to transcribe_audio");
+        return Err(AppError::Whisper("Empty audio data".to_string()).into());
+    }
+    
+    // Check if model is loaded
     let context = WHISPER_CONTEXT.lock();
-    let ctx = context.as_ref()
-        .ok_or_else(|| AppError::Whisper("Whisper model not loaded".to_string()))?;
-
+    if context.is_none() {
+        error!("Whisper model not loaded");
+        return Err(AppError::Whisper("Whisper model not loaded".to_string()).into());
+    }
+    
+    let ctx = context.as_ref().unwrap();
+    info!("Whisper model is loaded and ready");
+    
+    // Create params
+    info!("Creating Whisper parameters");
     let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
     params.set_language(Some("en"));
     params.set_print_special(false);
     params.set_print_progress(false);
     params.set_print_timestamps(false);
 
-    let mut state = ctx.create_state()
-        .map_err(|e| AppError::Whisper(format!("Failed to create state: {}", e)))?;
+    // Create state
+    info!("Creating Whisper state");
+    let mut state = match ctx.create_state() {
+        Ok(state) => state,
+        Err(e) => {
+            error!("Failed to create Whisper state: {}", e);
+            return Err(AppError::Whisper(format!("Failed to create state: {}", e)).into());
+        }
+    };
 
-    state.full(params, audio_data)
-        .map_err(|e| AppError::Whisper(format!("Failed to process audio: {}", e)))?;
+    // Run full transcription
+    info!("Running full transcription process");
+    if let Err(e) = state.full(params, audio_data) {
+        error!("Failed to process audio with Whisper: {}", e);
+        return Err(AppError::Whisper(format!("Failed to process audio: {}", e)).into());
+    }
 
-    let num_segments = state.full_n_segments()
-        .map_err(|e| AppError::Whisper(format!("Failed to get number of segments: {}", e)))?;
+    // Get number of segments
+    info!("Getting number of segments");
+    let num_segments = match state.full_n_segments() {
+        Ok(segments) => {
+            info!("Transcription produced {} segments", segments);
+            segments
+        },
+        Err(e) => {
+            error!("Failed to get number of segments: {}", e);
+            return Err(AppError::Whisper(format!("Failed to get number of segments: {}", e)).into());
+        }
+    };
 
+    // Extract text from segments
+    info!("Extracting text from {} segments", num_segments);
     let mut text = String::new();
     for i in 0..num_segments {
-        if let Ok(segment) = state.full_get_segment_text(i) {
-            text.push_str(&segment);
+        match state.full_get_segment_text(i) {
+            Ok(segment) => {
+                info!("Segment {}: '{}'", i, segment);
+                text.push_str(&segment);
+            },
+            Err(e) => {
+                warn!("Failed to get text for segment {}: {}", i, e);
+                // Continue with other segments rather than failing
+            }
         }
+    }
+
+    if text.trim().is_empty() {
+        warn!("Transcription produced empty text");
+    } else {
+        info!("Transcription complete: '{}'", text.trim());
     }
 
     Ok(text.trim().to_string())
