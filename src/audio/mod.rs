@@ -4,13 +4,16 @@ use hound;
 use log::{error, info, debug, warn};
 use parking_lot::Mutex;
 use rodio::{source::SineWave, OutputStream, Sink, Source};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering, AtomicU64};
 use std::thread;
 use std::time::Duration;
 use once_cell::sync::Lazy;
 
 use crate::error::AppError;
 use crate::utils::get_config;
+use crate::state::send_state_update;
+use crate::state::RECORDING;
+use crate::ui::AppState;
 
 // Configuration
 const SAMPLE_RATE: u32 = 16000;
@@ -38,7 +41,7 @@ impl Default for AudioConfig {
 }
 
 // Global state
-static RECORDING: AtomicBool = AtomicBool::new(false);
+static TRANSCRIBING: AtomicBool = AtomicBool::new(false);
 static AUDIO_BUFFER: Lazy<Mutex<Vec<f32>>> = Lazy::new(|| Mutex::new(Vec::with_capacity(SAMPLE_RATE as usize * 300)));
 
 // Helper function to update activity time
@@ -94,6 +97,10 @@ pub fn is_recording() -> bool {
     RECORDING.load(Ordering::SeqCst)
 }
 
+pub fn is_transcribing() -> bool {
+    TRANSCRIBING.load(Ordering::SeqCst)
+}
+
 pub fn start_recording() -> Result<()> {
     update_activity_time();
     
@@ -103,32 +110,35 @@ pub fn start_recording() -> Result<()> {
     
     AUDIO_BUFFER.lock().clear();
     
-    info!("▶️ PREPARING TO RECORD - PLAYING BEEP ▶️");
+    info!("▶️ PREPARING TO RECORD ▶️");
     
-    // Get config to check if beeps are enabled
-    let config = get_config();
-    let beeps_enabled = !config.disable_beep;
-    
-    // Play beep asynchronously with reduced duration
-    let beep_result = play_beep_async(1000, 150); // Reduced duration from 600ms to 150ms
-    if let Err(e) = &beep_result {
-        // Log error if spawning the beep thread failed
-        warn!("Failed to start async start beep: {}", e);
-    } else if beeps_enabled {
-        info!("Start beep initiated asynchronously");
-    }
-    
-    info!("▶️ RECORDING STARTED ▶️");
+    // Start recording immediately
     RECORDING.store(true, Ordering::SeqCst);
-    
     std::thread::spawn(|| {
         if let Err(e) = audio_recording_thread() {
             error!("Audio recording thread error: {}", e);
             RECORDING.store(false, Ordering::SeqCst);
         }
     });
+    info!("▶️ RECORDING STARTED - PLAYING BEEP ▶️");
+
+    // Get config to check if beeps are enabled
+    let config = get_config();
+    let beeps_enabled = !config.disable_beep;
     
-    info!("Recording started... Release Right Control key to stop.");
+    // Play beep asynchronously
+    if beeps_enabled {
+        // Play beep asynchronously with reduced duration
+        let beep_result = play_beep_async(1000, 150); // Reduced duration from 600ms to 150ms
+        if let Err(e) = &beep_result {
+            // Log error if spawning the beep thread failed
+            warn!("Failed to start async start beep: {}", e);
+        } else {
+            info!("Start beep initiated asynchronously");
+        }
+    }
+    
+    info!("Recording... Release Right Control key to stop.");
     
     Ok(())
 }
@@ -137,6 +147,7 @@ pub fn stop_recording() -> Result<()> {
     update_activity_time();
     
     if !RECORDING.load(Ordering::SeqCst) {
+        info!("Stop recording called but we weren't recording");
         return Ok(());
     }
     
@@ -159,11 +170,15 @@ pub fn stop_recording() -> Result<()> {
         }
     }
     
+    // Make sure we give the recording thread a chance to finish
+    thread::sleep(Duration::from_millis(100));
+    
     // Get the recorded audio
     let audio_data = AUDIO_BUFFER.lock().clone();
     
     if audio_data.is_empty() {
-        warn!("No audio data was recorded");
+        warn!("No audio data was recorded (buffer is empty)");
+        send_state_update(AppState::Normal); // Revert to Normal since we have no audio
         return Ok(());
     }
     
@@ -171,20 +186,29 @@ pub fn stop_recording() -> Result<()> {
     
     // Get the device's native configuration
     let device = match cpal::default_host().default_input_device() {
-        Some(device) => device,
+        Some(device) => {
+            info!("Found input device: {}", device.name().unwrap_or_default());
+            device
+        },
         None => {
             warn!("No input device available, assuming default configuration");
             // Continue with default values
+            info!("Attempting transcription with default configuration (48000Hz, 1 channel)");
             let audio_data = process_audio_for_whisper(audio_data, 48000, 1)?;
             return process_transcription(audio_data);
         }
     };
     
     let default_config = match device.default_input_config() {
-        Ok(config) => config,
+        Ok(config) => {
+            info!("Got device config: {} channels at {} Hz", 
+                 config.channels(), config.sample_rate().0);
+            config
+        },
         Err(e) => {
             warn!("Failed to get default input config: {}, assuming default configuration", e);
             // Continue with default values
+            info!("Attempting transcription with default configuration (48000Hz, 1 channel)");
             let audio_data = process_audio_for_whisper(audio_data, 48000, 1)?;
             return process_transcription(audio_data);
         }
@@ -196,10 +220,38 @@ pub fn stop_recording() -> Result<()> {
     info!("Device configuration: {} channels at {} Hz", device_channels, device_sample_rate);
     
     // Process the audio for Whisper
-    let audio_data = process_audio_for_whisper(audio_data, device_sample_rate, device_channels)?;
+    info!("Pre-processing audio data for transcription");
+    let audio_data = match process_audio_for_whisper(audio_data, device_sample_rate, device_channels) {
+        Ok(processed) => {
+            info!("Audio successfully processed, ready for transcription ({} samples)", processed.len());
+            processed
+        },
+        Err(e) => {
+            error!("Failed to process audio for transcription: {}", e);
+            send_state_update(AppState::Normal); // Revert to Normal on error
+            return Err(e);
+        }
+    };
+    
+    // Send Transcribing state update BEFORE starting transcription
+    info!("Setting application state to Transcribing");
+    send_state_update(AppState::Transcribing);
+    
+    // Set the atomic flag after sending the update
+    TRANSCRIBING.store(true, Ordering::SeqCst);
     
     // Process with Whisper
-    process_transcription(audio_data)
+    info!("Starting transcription with Whisper");
+    let transcription_result = process_transcription(audio_data);
+    info!("Transcription process completed with result: {:?}", transcription_result.is_ok());
+    
+    // Set Transcribing flag to false AFTER processing completes
+    TRANSCRIBING.store(false, Ordering::SeqCst);
+    
+    // Send Normal state update AFTER transcription finishes (or fails)
+    send_state_update(AppState::Normal);
+    
+    transcription_result // Return the result of process_transcription
 }
 
 // Helper function to process audio for Whisper
@@ -276,20 +328,55 @@ fn process_audio_for_whisper(audio_data: Vec<f32>, sample_rate: u32, channels: u
 
 // Helper function to process transcription
 fn process_transcription(audio_data: Vec<f32>) -> Result<()> {
-    // Process with Whisper
-    info!("Processing speech with Whisper...");
-    let transcription = crate::whisper::transcribe_audio(&audio_data)
-        .context("Failed to transcribe audio")?;
-    
-    if !transcription.is_empty() {
-        // Insert text at cursor position
-        crate::input::type_text(&transcription)?;
-        info!("Transcribed: {}", transcription);
-    } else {
-        warn!("Empty transcription result");
+    // Ensure TRANSCRIBING flag is true at the start
+    if !TRANSCRIBING.load(Ordering::SeqCst) {
+        warn!("process_transcription called but TRANSCRIBING flag is false");
+        // Optionally set it true here, or return error?
+        TRANSCRIBING.store(true, Ordering::SeqCst);
+        info!("Set TRANSCRIBING flag to true");
     }
     
-    Ok(())
+    info!("Processing speech with Whisper... (audio length: {} samples)", audio_data.len());
+    
+    // Save a copy of the audio data for debugging
+    if crate::utils::get_config().enable_debug_recording {
+        match save_debug_audio(&audio_data, "transcription_input.wav") {
+            Ok(_) => info!("Saved transcription input to transcription_input.wav"),
+            Err(e) => warn!("Failed to save transcription input: {}", e),
+        }
+    }
+
+    // Make sure we're actually passing data to whisper
+    if audio_data.is_empty() {
+        error!("No audio data to transcribe (empty buffer)");
+        return Err(anyhow::anyhow!("No audio data to transcribe"));
+    }
+
+    info!("Calling whisper::transcribe_audio with {} samples", audio_data.len());
+    let result = match crate::whisper::transcribe_audio(&audio_data) {
+        Ok(text) => Ok(text),
+        Err(e) => {
+            error!("Whisper transcription failed: {}", e);
+            Err(e)
+        }
+    };
+
+    match result {
+        Ok(text) => {
+            info!("Transcription successful - result: '{}'", text);
+            if !text.trim().is_empty() {
+                info!("Attempting to insert transcribed text");
+                crate::input::type_text(&text)?;
+            } else {
+                warn!("Transcription returned empty text - nothing to insert");
+            }
+            Ok(())
+        }
+        Err(e) => {
+            error!("Transcription failed with error: {}", e);
+            Err(e)
+        }
+    }
 }
 
 fn audio_recording_thread() -> Result<()> {
@@ -419,12 +506,30 @@ fn try_build_input_stream(device: &cpal::Device, config: &cpal::StreamConfig) ->
         error!("An error occurred on stream: {}", err);
     };
 
+    // Reset the audio buffer before starting
+    AUDIO_BUFFER.lock().clear();
+    debug!("Audio buffer cleared, ready for new data");
+
     debug!("Building input stream...");
     let stream = device.build_input_stream(
         config,
         move |data: &[f32], _: &cpal::InputCallbackInfo| {
             if RECORDING.load(Ordering::SeqCst) {
+                // Debug log only for the first few callbacks to avoid flooding
+                static CALLBACK_COUNT: AtomicU64 = AtomicU64::new(0);
+                let count = CALLBACK_COUNT.fetch_add(1, Ordering::SeqCst);
+                if count < 5 {
+                    debug!("Audio callback received {} samples", data.len());
+                }
+                
+                // Add the data to our buffer
                 AUDIO_BUFFER.lock().extend_from_slice(data);
+                
+                // Log total sample count occasionally
+                if count % 50 == 0 {
+                    let buffer_size = AUDIO_BUFFER.lock().len();
+                    debug!("Audio buffer now contains {} samples", buffer_size);
+                }
             }
         },
         err_fn,
@@ -435,10 +540,14 @@ fn try_build_input_stream(device: &cpal::Device, config: &cpal::StreamConfig) ->
     stream.play()?;
 
     debug!("Recording thread running...");
+    // We need to keep the stream alive while recording
     while RECORDING.load(Ordering::SeqCst) {
         thread::sleep(Duration::from_millis(100));
     }
 
+    // Log the final buffer size for debugging
+    let final_size = AUDIO_BUFFER.lock().len();
+    info!("Recording stopped. Final buffer contains {} samples", final_size);
     debug!("Recording thread finished");
     Ok(())
 }

@@ -74,6 +74,7 @@ serde = { version = "1.0", features = ["derive"] }
 winreg = "0.52"
 futures-util = "0.3"
 tokio = { version = "1.0", features = ["full"] }
+winit = "0.30.9"
 
 # Add windows-sys under the correct target section
 [target.'cfg(target_os = "windows")'.dependencies]

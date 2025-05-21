@@ -5,23 +5,26 @@ mod input;
 mod utils;
 mod error;
 mod model;
+mod state;
 
 use anyhow::{Result, Context};
-use log::{error, info, warn};
+use log::{error, info, warn, debug};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::fs;
 use std::path::Path;
-use crossbeam_channel::{select, tick};
+use crossbeam_channel::{select, tick, Receiver};
+use once_cell::sync::Lazy;
 use simple_logger;
 
 use crate::{
     audio::{list_audio_devices, headphone_keepalive_thread},
     whisper::load_model,
-    ui::update_tray_icon,
+    ui::{update_tray_icon, process_menu_actions, cleanup_tray, AppState},
     input::start_keyboard_listener,
     utils::{acquire_instance_lock, parse_args, Args},
+    state::{RECORDING, send_state_update, get_state_update_receiver},
 };
 
 // Configuration constants
@@ -31,7 +34,7 @@ const ENABLE_SYSTEM_TRAY: bool = true;
 const ENABLE_BEEP_SOUNDS: bool = true;
 
 // Global state
-static RECORDING: AtomicBool = AtomicBool::new(false);
+// pub static RECORDING: AtomicBool = AtomicBool::new(false); // Using state::RECORDING instead
 static LAST_ACTIVITY_TIME: AtomicU64 = AtomicU64::new(0);
 static LAST_ESC_PRESS: AtomicU64 = AtomicU64::new(0);
 static HOTKEY_PRESS_TIME: AtomicU64 = AtomicU64::new(0);
@@ -56,7 +59,7 @@ fn get_current_time_ms() -> u64 {
 #[tokio::main]
 async fn main() -> Result<()> {
     // Initialize logging
-    simple_logger::init_with_level(log::Level::Info).context("Failed to initialize logger")?;
+    simple_logger::init_with_level(log::Level::Debug).context("Failed to initialize logger")?;
     info!("Starting Push-to-Whisper...");
     
     // Parse command line arguments
@@ -87,9 +90,15 @@ async fn main() -> Result<()> {
     }
     
     // Initialize the system tray
-    if !args.disable_tray {
-        update_tray_icon(ui::AppState::Normal);
-        info!("System tray icon initialized successfully");
+    let enable_tray = !args.disable_tray;
+    if enable_tray {
+        if let Err(e) = ui::init_tray_icon() {
+            warn!("Failed to initialize system tray: {}", e);
+        } else {
+            // Initial state update on main thread
+            update_tray_icon(ui::AppState::Normal);
+            info!("System tray icon initialized successfully");
+        }
     }
     
     // Start headphone keepalive thread if enabled
@@ -110,41 +119,72 @@ async fn main() -> Result<()> {
     
     // Main event loop
     let ticker = tick(Duration::from_millis(100));
+    let state_update_rx = get_state_update_receiver();
     
-    // Track last known state to avoid unnecessary updates
-    let mut last_known_state = if RECORDING.load(Ordering::SeqCst) {
-        ui::AppState::Recording
-    } else {
-        ui::AppState::Normal
-    };
-    
-    // Initial tray update
-    if !args.disable_tray {
-        update_tray_icon(last_known_state);
-    }
+    let mut last_known_state = AppState::Normal; // Initialize state correctly
     
     loop {
         select! {
+            // Listen for periodic ticks
             recv(ticker) -> _ => {
-                // Check if exit was requested
+                // Check if exit was requested from outside (e.g., Ctrl+C)
                 if EXIT_REQUESTED.load(Ordering::SeqCst) {
-                    info!("Exit requested, shutting down...");
+                    info!("External exit requested, shutting down...");
                     break;
                 }
                 
-                // Only update tray icon when state changes
-                let current_state = if RECORDING.load(Ordering::SeqCst) {
-                    ui::AppState::Recording
-                } else {
-                    ui::AppState::Normal
-                };
-                
-                if !args.disable_tray && current_state != last_known_state {
-                    update_tray_icon(current_state);
-                    last_known_state = current_state;
+                // Process any menu actions from the system tray (T key press)
+                if enable_tray {
+                    if let Ok(exit_requested_from_menu) = process_menu_actions() {
+                        if exit_requested_from_menu {
+                            info!("Exit requested via menu, shutting down...");
+                            EXIT_REQUESTED.store(true, Ordering::SeqCst);
+                            // Let the loop break on the next check
+                        }
+                    }
+                }
+            },
+            // Listen for state updates from other threads
+            recv(state_update_rx) -> msg => {
+                match msg {
+                    Ok(new_state) => {
+                        debug!("[Main Thread] Received state update: {:?}", new_state);
+                        // Only update if the state has actually changed
+                        if new_state != last_known_state {
+                            info!("[Main Thread] App state changed from {:?} to {:?}", last_known_state, new_state);
+                            if enable_tray {
+                                // Call update_tray_icon from the main thread
+                                update_tray_icon(new_state);
+                            }
+                            last_known_state = new_state;
+                        } else {
+                            debug!("[Main Thread] State {:?} is same as last known state, skipping UI update.", new_state);
+                        }
+                    }
+                    Err(e) => {
+                        error!("State update channel error: {}. Shutting down.", e);
+                        EXIT_REQUESTED.store(true, Ordering::SeqCst);
+                        break; // Exit loop on channel error
+                    }
                 }
             }
         }
+        
+        // Check exit condition again after select!
+        if EXIT_REQUESTED.load(Ordering::SeqCst) {
+             info!("Exit condition met after select!, breaking loop...");
+             break;
+        }
+    }
+    
+    // Cleanup resources before exit
+    if enable_tray {
+        cleanup_tray();
+    }
+    
+    // Clean up lock file on exit
+    if let Err(e) = fs::remove_file(LOCK_FILE_PATH) {
+        error!("Failed to remove lock file on exit: {}", e);
     }
     
     info!("Application shutdown complete");
@@ -164,10 +204,6 @@ async fn init_app(args: &Args) -> Result<()> {
     // Set up cleanup on exit
     ctrlc::set_handler(|| {
         EXIT_REQUESTED.store(true, Ordering::SeqCst);
-        // Clean up lock file on exit
-        if let Err(e) = fs::remove_file(LOCK_FILE_PATH) {
-            error!("Failed to remove lock file on exit: {}", e);
-        }
     })?;
     
     // List available audio devices for troubleshooting
