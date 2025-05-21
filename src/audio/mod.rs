@@ -110,32 +110,35 @@ pub fn start_recording() -> Result<()> {
     
     AUDIO_BUFFER.lock().clear();
     
-    info!("▶️ PREPARING TO RECORD - PLAYING BEEP ▶️");
+    info!("▶️ PREPARING TO RECORD ▶️");
     
-    // Get config to check if beeps are enabled
-    let config = get_config();
-    let beeps_enabled = !config.disable_beep;
-    
-    // Play beep asynchronously with reduced duration
-    let beep_result = play_beep_async(1000, 150); // Reduced duration from 600ms to 150ms
-    if let Err(e) = &beep_result {
-        // Log error if spawning the beep thread failed
-        warn!("Failed to start async start beep: {}", e);
-    } else if beeps_enabled {
-        info!("Start beep initiated asynchronously");
-    }
-    
-    info!("▶️ RECORDING STARTED ▶️");
+    // Start recording immediately
     RECORDING.store(true, Ordering::SeqCst);
-    
     std::thread::spawn(|| {
         if let Err(e) = audio_recording_thread() {
             error!("Audio recording thread error: {}", e);
             RECORDING.store(false, Ordering::SeqCst);
         }
     });
+    info!("▶️ RECORDING STARTED - PLAYING BEEP ▶️");
+
+    // Get config to check if beeps are enabled
+    let config = get_config();
+    let beeps_enabled = !config.disable_beep;
     
-    info!("Recording started... Release Right Control key to stop.");
+    // Play beep asynchronously
+    if beeps_enabled {
+        // Play beep asynchronously with reduced duration
+        let beep_result = play_beep_async(1000, 150); // Reduced duration from 600ms to 150ms
+        if let Err(e) = &beep_result {
+            // Log error if spawning the beep thread failed
+            warn!("Failed to start async start beep: {}", e);
+        } else {
+            info!("Start beep initiated asynchronously");
+        }
+    }
+    
+    info!("Recording... Release Right Control key to stop.");
     
     Ok(())
 }

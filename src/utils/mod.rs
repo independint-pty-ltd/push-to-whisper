@@ -36,10 +36,10 @@ static CONFIG: once_cell::sync::Lazy<std::sync::Mutex<Option<Args>>> =
 // Valid model sizes
 pub const VALID_MODELS: [&str; 5] = ["tiny.en", "base.en", "small.en", "medium.en", "large"];
 pub const DEFAULT_MODEL: &str = "medium.en";
-pub const DEFAULT_LONG_PRESS_THRESHOLD: u64 = 500; // milliseconds
+pub const DEFAULT_LONG_PRESS_THRESHOLD: u64 = 150; // milliseconds
 pub const DEFAULT_HEADPHONE_KEEPALIVE_INTERVAL: u64 = 30; // seconds
 pub const DEFAULT_ENABLE_DEBUG_RECORDING: bool = true; // enabled by default for troubleshooting
-pub const DEFAULT_BEEP_VOLUME: f32 = 0.1; // 10% volume by default
+pub const DEFAULT_BEEP_VOLUME: f32 = 0.3; // 30% volume by default
 
 fn is_another_instance_running() -> bool {
     // Get the current process ID

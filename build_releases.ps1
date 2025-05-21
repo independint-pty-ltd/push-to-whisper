@@ -2,7 +2,35 @@
 
 # --- Configuration ---
 $ProjectName = "push-to-whisper"
-$Version = "0.2.1" # Extracted from Cargo.toml
+
+# --- Dynamic Version Extraction from Git Branch ---
+Write-Host "Attempting to extract version from Git branch name..."
+$CurrentBranch = ""
+try {
+    $CurrentBranch = git rev-parse --abbrev-ref HEAD | ForEach-Object {$_.Trim()}
+    if (-not $CurrentBranch) {
+        throw "Git branch name is empty."
+    }
+    Write-Host "Current Git branch: $CurrentBranch"
+}
+catch {
+    Write-Error "Failed to get Git branch name. Ensure 'git' is installed, in PATH, and you are in a Git repository."
+    Write-Error $_.Exception.Message
+    exit 1
+}
+
+$VersionPattern = "v?(\d+\.\d+\.\d+)" # Looks for vX.Y.Z or X.Y.Z, captures X.Y.Z
+$Version = ""
+
+if ($CurrentBranch -match $VersionPattern) {
+    $Version = $Matches[1]
+    Write-Host "Successfully extracted version '$Version' from branch '$CurrentBranch'." -ForegroundColor Green
+} else {
+    Write-Error "Failed to extract version from branch name '$CurrentBranch'. Expected a version pattern like 'X.Y.Z' or 'vX.Y.Z' (e.g., 'release/0.3.1' or 'release/v0.3.1')."
+    exit 1
+}
+# --- End Dynamic Version Extraction ---
+
 $BaseExeName = "push-to-whisper.exe"
 $ReadmeSource = "README.md"
 $ReadmeTarget = "README.txt"
