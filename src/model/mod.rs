@@ -7,6 +7,7 @@ use reqwest::Client;
 use indicatif::{ProgressBar, ProgressStyle};
 use futures_util::StreamExt;
 
+#[allow(dead_code)] // Model URLs for future download functionality
 const MODEL_URLS: &[(&str, &str)] = &[
     ("tiny.en", "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin"),
     ("base.en", "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin"),
@@ -74,6 +75,7 @@ async fn download_model(model_size: &str, path: &PathBuf) -> Result<()> {
     Ok(())
 }
 
+#[allow(dead_code)] // Function for future model management features
 pub fn list_available_models() -> Vec<String> {
     MODEL_URLS.iter().map(|(size, _)| size.to_string()).collect()
 } 

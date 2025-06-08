@@ -1,6 +1,7 @@
 use thiserror::Error;
 
 #[derive(Debug, Error)]
+#[allow(dead_code)] // Error enum - variants may be used in future
 pub enum AppError {
     #[error("Audio error: {0}")]
     Audio(String),

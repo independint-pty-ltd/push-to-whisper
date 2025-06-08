@@ -8,7 +8,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH, Duration};
 use std::thread;
 
 use crate::utils::request_exit;
-use crate::error::AppError;
+// use crate::error::AppError; // Currently unused
 use crate::state::send_state_update;
 use crate::state::RECORDING;
 use crate::ui::AppState;
@@ -20,6 +20,7 @@ pub const TEXT_INSERT_METHOD: TextInsertMethod = TextInsertMethod::Clipboard;
 pub const CLIPBOARD_RESTORE_DELAY: std::time::Duration = std::time::Duration::from_secs(10);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[allow(dead_code)] // Configuration enum - variants may be used in future
 pub enum TextInsertMethod {
     Clipboard,
     Shortcut,
@@ -27,6 +28,7 @@ pub enum TextInsertMethod {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Configuration struct - fields may be used in future
 pub struct InputConfig {
     pub hotkey: RdevKey,
     pub long_press_threshold: u64,
@@ -179,7 +181,7 @@ pub fn type_text(text: &str) -> Result<()> {
                     
                     // Simulate Ctrl+V to paste
                     let mut enigo = Enigo::default();
-                    thread::sleep(Duration::from_millis(200));
+                    thread::sleep(Duration::from_millis(50));
                     enigo.key_down(Key::Control);
                     enigo.key_click(Key::Layout('v'));
                     enigo.key_up(Key::Control);
@@ -216,7 +218,7 @@ pub fn type_text(text: &str) -> Result<()> {
             let mut enigo = Enigo::default();
             for c in text.chars() {
                 enigo.key_click(Key::Layout(c));
-                thread::sleep(Duration::from_millis(5));
+                thread::sleep(Duration::from_millis(2)); // Reduced from 5ms to 2ms for faster typing
             }
         }
     }
