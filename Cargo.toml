@@ -1,6 +1,6 @@
 [package]
 name = "push-to-whisper"
-version = "0.2.1"
+version = "0.3.1"
 edition = "2021"
 authors = ["Your Name <your.email@example.com>"]
 description = "A fast, private push-to-speak transcription tool using OpenAI's Whisper model"
@@ -46,8 +46,9 @@ rodio = "0.17"
 # UI and system tray
 # tray-item = { version = "0.10.0", features = [] }
 tray-icon = "0.20.0"
-egui = "0.26.0"
 eframe = "0.26.0"
+egui = "0.26.0"
+native-windows-gui = "1.0.13"
 
 # Process control
 ctrlc = "3.4.1"
@@ -78,7 +79,13 @@ winit = "0.30.9"
 
 # Add windows-sys under the correct target section
 [target.'cfg(target_os = "windows")'.dependencies]
-windows-sys = { version = "0.48", features = ["Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.48", features = [
+    "Win32_UI_WindowsAndMessaging", 
+    "Win32_Graphics_Gdi", 
+    "Win32_Foundation",
+    "Win32_System_LibraryLoader"
+] }
+winrt-notification = "0.5"
 
 [build-dependencies]
 # For Windows resource embedding

@@ -245,6 +245,21 @@ The configuration uses CUDA 12.x format with compute/sm pairs and includes PTX f
 
 While currently Windows-only, support for Linux and macOS is planned for future releases.
 
+## Documentation
+
+Comprehensive documentation is available in the following locations:
+
+- **[Technical Documentation](docs/)** - Complete technical documentation including PRD, implementation guides, and feature documentation
+- **[Release Notes](release_notes/)** - Version history and detailed release information
+- **[API Documentation](https://docs.rs/push-to-whisper)** - Generated API documentation (when published)
+
+### Key Documentation
+
+- **[Product Requirements](docs/product-requirements.md)** - Complete product specification
+- **[System Tray Guide](docs/tray-icon.md)** - System tray functionality and usage
+- **[Overlay Notifications](docs/overlay-notifications.md)** - Non-intrusive notification system
+- **[Performance Optimizations](docs/performance-optimizations.md)** - Performance tuning and optimization details
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.

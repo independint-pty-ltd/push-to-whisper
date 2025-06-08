@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use hound;
 use log::{error, info, debug, warn};
@@ -22,6 +22,7 @@ const KEEP_HEADPHONES_ALIVE: bool = true;
 const HEADPHONE_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Configuration struct - fields may be used in future
 pub struct AudioConfig {
     pub sample_rate: u32,
     pub channels: u16,
@@ -54,49 +55,35 @@ pub fn play_beep_async(frequency: u32, duration_ms: u64) -> Result<()> {
     // Check if beeps are disabled in config
     let config = get_config();
     if config.disable_beep {
-        // Don't log here, as it might be called frequently when disabled
         return Ok(());
     }
 
-    let beep_volume = config.beep_volume; // Capture volume for the thread
-
-    info!("Playing async beep at {}Hz for {}ms", frequency, duration_ms);
+    let beep_volume = config.beep_volume;
 
     // Spawn a new thread to handle blocking audio playback
     thread::spawn(move || {
-        match OutputStream::try_default() {
-            Ok((_stream, stream_handle)) => {
-                match Sink::try_new(&stream_handle) {
-                    Ok(sink) => {
-                        let source = SineWave::new(frequency as f32)
-                            .take_duration(Duration::from_millis(duration_ms))
-                            .amplify(beep_volume); // Use configured volume
+        if let Ok((_stream, stream_handle)) = OutputStream::try_default() {
+            if let Ok(sink) = Sink::try_new(&stream_handle) {
+                let source = SineWave::new(frequency as f32)
+                    .take_duration(Duration::from_millis(duration_ms))
+                    .amplify(beep_volume);
 
-                        sink.append(source);
-                        sink.set_volume(beep_volume); // Use configured volume
-
-                        // Wait for the beep to finish - this blocks the *new* thread
-                        sink.sleep_until_end();
-                        // info!("Async beep completed"); // Optional: Log completion if needed
-                    }
-                    Err(e) => {
-                        warn!("Failed to create audio sink for async beep: {}", e);
-                    }
-                }
-            }
-            Err(e) => {
-                warn!("Failed to open audio output stream for async beep: {}", e);
+                sink.append(source);
+                sink.set_volume(beep_volume);
+                sink.sleep_until_end();
             }
         }
     });
 
-    Ok(()) // Return immediately after spawning the thread
+    Ok(())
 }
 
+#[allow(dead_code)] // May be used for debugging or future features
 pub fn is_recording() -> bool {
     RECORDING.load(Ordering::SeqCst)
 }
 
+#[allow(dead_code)] // May be used for debugging or future features
 pub fn is_transcribing() -> bool {
     TRANSCRIBING.load(Ordering::SeqCst)
 }
@@ -110,7 +97,7 @@ pub fn start_recording() -> Result<()> {
     
     AUDIO_BUFFER.lock().clear();
     
-    info!("▶️ PREPARING TO RECORD ▶️");
+    info!("▶️ STARTING RECORDING ▶️");
     
     // Start recording immediately
     RECORDING.store(true, Ordering::SeqCst);
@@ -120,25 +107,15 @@ pub fn start_recording() -> Result<()> {
             RECORDING.store(false, Ordering::SeqCst);
         }
     });
-    info!("▶️ RECORDING STARTED - PLAYING BEEP ▶️");
 
     // Get config to check if beeps are enabled
     let config = get_config();
     let beeps_enabled = !config.disable_beep;
     
-    // Play beep asynchronously
+    // Play beep asynchronously (non-blocking)
     if beeps_enabled {
-        // Play beep asynchronously with reduced duration
-        let beep_result = play_beep_async(1000, 150); // Reduced duration from 600ms to 150ms
-        if let Err(e) = &beep_result {
-            // Log error if spawning the beep thread failed
-            warn!("Failed to start async start beep: {}", e);
-        } else {
-            info!("Start beep initiated asynchronously");
-        }
+        let _ = play_beep_async(1000, 100); // Reduced duration to 100ms for snappier feel
     }
-    
-    info!("Recording... Release Right Control key to stop.");
     
     Ok(())
 }
@@ -154,31 +131,18 @@ pub fn stop_recording() -> Result<()> {
     info!("⏹️ STOPPING RECORDING ⏹️");
     RECORDING.store(false, Ordering::SeqCst);
     
-    // Play a beep to indicate recording has stopped
-    info!("Playing stop recording beep");
-    // Play beep asynchronously with reduced duration
-    let beep_result = play_beep_async(800, 150); // Reduced duration from 600ms to 150ms
-    if let Err(e) = &beep_result {
-        warn!("Failed to start async stop beep: {}", e);
-    } else {
-        // Get config to check if beeps are enabled (check again in case it changed)
-        let config = get_config();
-        let beeps_enabled = !config.disable_beep;
-
-        if beeps_enabled {
-            info!("Stop beep initiated asynchronously");
-        }
+    // Play stop beep asynchronously (non-blocking)
+    let config = get_config();
+    if !config.disable_beep {
+        let _ = play_beep_async(800, 100); // Reduced duration to 100ms for snappier feel
     }
     
-    // Make sure we give the recording thread a chance to finish
-    thread::sleep(Duration::from_millis(100));
-    
-    // Get the recorded audio
+    // Get the recorded audio immediately (no artificial delay)
     let audio_data = AUDIO_BUFFER.lock().clone();
     
     if audio_data.is_empty() {
         warn!("No audio data was recorded (buffer is empty)");
-        send_state_update(AppState::Normal); // Revert to Normal since we have no audio
+        send_state_update(AppState::Normal);
         return Ok(());
     }
     
@@ -387,107 +351,38 @@ fn audio_recording_thread() -> Result<()> {
 
     debug!("Using input device: {}", device.name()?);
 
-    // Get the device's default config
+    // Get the device's default config and try it first
     let default_config = device.default_input_config()
         .map_err(|e| AppError::Device(format!("Failed to get default input config: {}", e)))?;
 
-    // Try to build a stream with the device's native configuration first
-    let result = try_build_stream(&device, &default_config);
+    // Try the native configuration first
+    if try_build_stream(&device, &default_config).is_ok() {
+        return Ok(());
+    }
     
-    // If the native configuration fails, try fallback configurations
-    if let Err(e) = result {
-        warn!("Failed to build stream with native config: {}", e);
+    warn!("Failed to build stream with native config, trying fallbacks");
+    
+    // Quick fallback to common configurations
+    let fallback_configs = [
+        (1, 44100),  // Mono, 44.1kHz (most common)
+        (1, 48000),  // Mono, 48kHz 
+        (2, 44100),  // Stereo, 44.1kHz
+        (1, 16000),  // Mono, 16kHz (speech optimized)
+    ];
+    
+    for (channels, sample_rate) in fallback_configs.iter() {
+        let config = cpal::StreamConfig {
+            channels: *channels,
+            sample_rate: cpal::SampleRate(*sample_rate),
+            buffer_size: cpal::BufferSize::Default,
+        };
         
-        // Try to get all supported configurations
-        match device.supported_input_configs() {
-            Ok(supported_configs) => {
-                debug!("Trying alternative configurations...");
-                
-                // Convert iterator to Vec to avoid borrowing issues
-                let configs: Vec<_> = supported_configs.collect();
-                
-                // Try each supported configuration until one works
-                for supported_config_range in configs {
-                    // Try with minimum sample rate first (usually more compatible)
-                    let config = supported_config_range.with_sample_rate(supported_config_range.min_sample_rate());
-                    debug!("Trying config: {} channels at {} Hz", 
-                           config.channels(), 
-                           config.sample_rate().0);
-                    
-                    if let Ok(_) = try_build_stream(&device, &config) {
-                        return Ok(());
-                    }
-                    
-                    // If min sample rate failed, try max sample rate
-                    let config = supported_config_range.with_max_sample_rate();
-                    debug!("Trying config: {} channels at {} Hz", 
-                           config.channels(), 
-                           config.sample_rate().0);
-                    
-                    if let Ok(_) = try_build_stream(&device, &config) {
-                        return Ok(());
-                    }
-                }
-                
-                // If all supported configs failed, try some common configurations
-                let common_configs = [
-                    (1, 16000),  // Mono, 16kHz (common for speech)
-                    (1, 44100),  // Mono, 44.1kHz (CD quality)
-                    (1, 48000),  // Mono, 48kHz (common for digital audio)
-                    (2, 44100),  // Stereo, 44.1kHz
-                    (2, 48000),  // Stereo, 48kHz
-                ];
-                
-                for (channels, sample_rate) in common_configs.iter() {
-                    debug!("Trying common config: {} channels at {} Hz", channels, sample_rate);
-                    
-                    let config = cpal::StreamConfig {
-                        channels: *channels,
-                        sample_rate: cpal::SampleRate(*sample_rate),
-                        buffer_size: cpal::BufferSize::Default,
-                    };
-                    
-                    if let Ok(_) = try_build_input_stream(&device, &config) {
-                        return Ok(());
-                    }
-                }
-                
-                // If all attempts failed, return the original error
-                return Err(e.into());
-            },
-            Err(e) => {
-                // If we can't get supported configs, try some common configurations
-                warn!("Failed to get supported configs: {}", e);
-                
-                let common_configs = [
-                    (1, 16000),  // Mono, 16kHz (common for speech)
-                    (1, 44100),  // Mono, 44.1kHz (CD quality)
-                    (1, 48000),  // Mono, 48kHz (common for digital audio)
-                    (2, 44100),  // Stereo, 44.1kHz
-                    (2, 48000),  // Stereo, 48kHz
-                ];
-                
-                for (channels, sample_rate) in common_configs.iter() {
-                    debug!("Trying common config: {} channels at {} Hz", channels, sample_rate);
-                    
-                    let config = cpal::StreamConfig {
-                        channels: *channels,
-                        sample_rate: cpal::SampleRate(*sample_rate),
-                        buffer_size: cpal::BufferSize::Default,
-                    };
-                    
-                    if let Ok(_) = try_build_input_stream(&device, &config) {
-                        return Ok(());
-                    }
-                }
-                
-                // If all attempts failed, return the original error
-                return Err(e.into());
-            }
+        if try_build_input_stream(&device, &config).is_ok() {
+            return Ok(());
         }
     }
     
-    Ok(())
+    Err(anyhow::anyhow!("Failed to initialize audio stream with any configuration"))
 }
 
 // Helper function to try building a stream with a specific configuration
@@ -515,18 +410,18 @@ fn try_build_input_stream(device: &cpal::Device, config: &cpal::StreamConfig) ->
         config,
         move |data: &[f32], _: &cpal::InputCallbackInfo| {
             if RECORDING.load(Ordering::SeqCst) {
-                // Debug log only for the first few callbacks to avoid flooding
+                // Debug log only for the first callback to avoid flooding
                 static CALLBACK_COUNT: AtomicU64 = AtomicU64::new(0);
                 let count = CALLBACK_COUNT.fetch_add(1, Ordering::SeqCst);
-                if count < 5 {
-                    debug!("Audio callback received {} samples", data.len());
+                if count == 0 {
+                    debug!("Audio callback started, receiving {} samples per callback", data.len());
                 }
                 
                 // Add the data to our buffer
                 AUDIO_BUFFER.lock().extend_from_slice(data);
                 
-                // Log total sample count occasionally
-                if count % 50 == 0 {
+                // Log total sample count occasionally (less frequently)
+                if count % 100 == 0 && count > 0 {
                     let buffer_size = AUDIO_BUFFER.lock().len();
                     debug!("Audio buffer now contains {} samples", buffer_size);
                 }
@@ -542,7 +437,7 @@ fn try_build_input_stream(device: &cpal::Device, config: &cpal::StreamConfig) ->
     debug!("Recording thread running...");
     // We need to keep the stream alive while recording
     while RECORDING.load(Ordering::SeqCst) {
-        thread::sleep(Duration::from_millis(100));
+        thread::sleep(Duration::from_millis(10)); // Reduced from 100ms to 10ms for faster response
     }
 
     // Log the final buffer size for debugging
@@ -552,6 +447,7 @@ fn try_build_input_stream(device: &cpal::Device, config: &cpal::StreamConfig) ->
     Ok(())
 }
 
+#[allow(dead_code)] // Alternative beep implementation
 pub fn play_beep(frequency: u32, _duration_ms: u64) -> Result<()> {
     let (_stream, stream_handle) = OutputStream::try_default()?;
     let sink = Sink::try_new(&stream_handle)?;

@@ -31,6 +31,37 @@ if ($CurrentBranch -match $VersionPattern) {
 }
 # --- End Dynamic Version Extraction ---
 
+# --- Update Cargo.toml Version ---
+Write-Host "Updating Cargo.toml version to '$Version'..."
+$CargoTomlPath = "Cargo.toml"
+
+if (-not (Test-Path -Path $CargoTomlPath)) {
+    Write-Error "Cargo.toml not found at $CargoTomlPath"
+    exit 1
+}
+
+try {
+    # Read the current Cargo.toml content
+    $CargoContent = Get-Content -Path $CargoTomlPath -Raw
+    
+    # Update the version line (matches version = "any.version.here")
+    $VersionPattern = '(version\s*=\s*")[^"]+(")'
+    $NewVersionString = "`${1}$Version`${2}"
+    
+    if ($CargoContent -match $VersionPattern) {
+        $UpdatedContent = $CargoContent -replace $VersionPattern, $NewVersionString
+        Set-Content -Path $CargoTomlPath -Value $UpdatedContent -NoNewline
+        Write-Host "Successfully updated Cargo.toml version to '$Version'" -ForegroundColor Green
+    } else {
+        Write-Warning "Could not find version field in Cargo.toml. Please check the file format."
+    }
+}
+catch {
+    Write-Error "Failed to update Cargo.toml version: $($_.Exception.Message)"
+    exit 1
+}
+# --- End Cargo.toml Version Update ---
+
 $BaseExeName = "push-to-whisper.exe"
 $ReadmeSource = "README.md"
 $ReadmeTarget = "README.txt"

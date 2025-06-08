@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use log::error;
 use once_cell::sync::Lazy;
 use crossbeam_channel::{unbounded, Sender, Receiver};
@@ -8,6 +8,7 @@ use crate::ui::AppState;
 pub static RECORDING: AtomicBool = AtomicBool::new(false);
 
 // Export a reference to the TRANSCRIBING variable from the audio module
+#[allow(dead_code)] // Function for future debugging features
 pub fn is_transcribing() -> bool {
     crate::audio::is_transcribing()
 }

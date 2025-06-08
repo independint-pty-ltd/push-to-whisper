@@ -16,6 +16,7 @@ static USING_CPU_FALLBACK: AtomicBool = AtomicBool::new(false);
 static CUDA_AVAILABLE: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Configuration struct - fields may be used in future
 pub struct WhisperConfig {
     pub model_size: String,
     pub language: String,

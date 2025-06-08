@@ -9,13 +9,12 @@ mod state;
 
 use anyhow::{Result, Context};
 use log::{error, info, warn, debug};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use std::fs;
 use std::path::Path;
-use crossbeam_channel::{select, tick, Receiver};
-use once_cell::sync::Lazy;
+use crossbeam_channel::{select, tick};
 use simple_logger;
 
 use crate::{
@@ -24,37 +23,16 @@ use crate::{
     ui::{update_tray_icon, process_menu_actions, cleanup_tray, AppState},
     input::start_keyboard_listener,
     utils::{acquire_instance_lock, parse_args, Args},
-    state::{RECORDING, send_state_update, get_state_update_receiver},
+    state::get_state_update_receiver,
 };
 
 // Configuration constants
-const HOTKEY: u32 = 0x51; // 'Q' key
 const LOCK_FILE_PATH: &str = "push-to-whisper.lock";
-const ENABLE_SYSTEM_TRAY: bool = true;
-const ENABLE_BEEP_SOUNDS: bool = true;
 
 // Global state
-// pub static RECORDING: AtomicBool = AtomicBool::new(false); // Using state::RECORDING instead
-static LAST_ACTIVITY_TIME: AtomicU64 = AtomicU64::new(0);
-static LAST_ESC_PRESS: AtomicU64 = AtomicU64::new(0);
-static HOTKEY_PRESS_TIME: AtomicU64 = AtomicU64::new(0);
-static HOTKEY_DOWN: AtomicBool = AtomicBool::new(false);
-static IGNORE_EXIT_UNTIL: AtomicU64 = AtomicU64::new(0);
-static KEY_HANDLED: AtomicBool = AtomicBool::new(false);
 static EXIT_REQUESTED: AtomicBool = AtomicBool::new(false);
 
-// Update the last activity timestamp
-fn update_activity_time() {
-    let now = get_current_time_ms();
-    LAST_ACTIVITY_TIME.store(now, Ordering::SeqCst);
-}
-
-fn get_current_time_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as u64
-}
+// Removed unused utility functions
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -111,7 +89,7 @@ async fn main() -> Result<()> {
     }
     
     // Start keyboard event listener
-    let keyboard_thread = thread::spawn(move || {
+    let _keyboard_thread = thread::spawn(move || {
         if let Err(e) = start_keyboard_listener() {
             error!("Keyboard listener error: {}", e);
         }

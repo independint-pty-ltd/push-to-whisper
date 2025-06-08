@@ -1,34 +1,27 @@
 use anyhow::{Context, Result};
 use log::{error, info, warn, debug};
-use once_cell::sync::{Lazy, OnceCell};
-use std::fs;
-use std::path::PathBuf;
-use std::sync::mpsc::{self, Receiver, Sender};
+use once_cell::sync::Lazy;
+use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use tray_icon::{self, Icon, TrayIcon, TrayIconBuilder};
-use tray_icon::menu::{Menu, MenuItem, MenuId};
-use winit::event_loop::{EventLoop};
-use winit::window::Window;
-use winit::event::Event;
-use winit::window::WindowAttributes;
-use std::sync::Arc;
+use tray_icon::{self, Icon, TrayIcon, TrayIconBuilder, TrayIconEvent};
+use tray_icon::menu::{Menu, MenuItem, MenuId, MenuEvent};
 use std::cell::RefCell;
 use parking_lot::Mutex;
 use std::time::Duration;
 
-use crate::utils::{self};
-use crate::input;
+
 
 mod ico_data;
 mod settings;
+// pub mod notification; // Using overlay instead
+pub mod overlay;
 
 // Re-export settings module functions for usage elsewhere
 pub use settings::open_settings;
 
 // Configuration constants
 pub const ENABLE_SYSTEM_TRAY: bool = true;
-pub const ENABLE_VISUAL_FEEDBACK: bool = true;
+// Removed unused constant
 
 // Enum for tray icon state
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -46,29 +39,40 @@ pub enum MenuAction {
     Quit,
 }
 
-// Thread-local UI elements (since TrayIcon is not Send + Sync)
+// Thread-local storage for tray icon (since TrayIcon is not Send + Sync)
 thread_local! {
     static TRAY_ICON: RefCell<Option<TrayIcon>> = RefCell::new(None);
-    static TRAY_MENU: RefCell<Option<Menu>> = RefCell::new(None);
 }
 
-// Thread-safe globals
+// Global state
 static APP_STATE: Lazy<Mutex<AppState>> = Lazy::new(|| Mutex::new(AppState::Normal));
 static MENU_CHANNEL: Lazy<Mutex<Option<Sender<MenuAction>>>> = Lazy::new(|| Mutex::new(None));
-static EXIT_REQUESTED: AtomicBool = AtomicBool::new(false);
+static ACTION_RECEIVER: Lazy<Mutex<Option<Receiver<MenuAction>>>> = Lazy::new(|| Mutex::new(None));
+static ICON_UPDATE_SENDER: Lazy<Mutex<Option<Sender<AppState>>>> = Lazy::new(|| Mutex::new(None));
 
 // Store menu item IDs for later reference
-static SETTINGS_ID: Lazy<Mutex<Option<MenuId>>> = Lazy::new(|| Mutex::new(None));
-static EXIT_ID: Lazy<Mutex<Option<MenuId>>> = Lazy::new(|| Mutex::new(None));
+static SETTINGS_MENU_ID: Lazy<Mutex<Option<MenuId>>> = Lazy::new(|| Mutex::new(None));
+static ABOUT_MENU_ID: Lazy<Mutex<Option<MenuId>>> = Lazy::new(|| Mutex::new(None));
+static EXIT_MENU_ID: Lazy<Mutex<Option<MenuId>>> = Lazy::new(|| Mutex::new(None));
 
-// Helper function to get current time in milliseconds
-fn current_time_ms() -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
+/// Show visual notification window for recording/transcribing
+fn show_visual_notification(state: AppState) {
+    debug!("show_visual_notification called with state: {:?}", state);
+    
+    // Check the actual configuration setting instead of hardcoded constant
+    let config = crate::utils::get_config();
+    if config.disable_visual {
+        debug!("Visual feedback is disabled in config, skipping notification");
+        return;
+    }
+    
+    debug!("Showing overlay notification for state: {:?}", state);
+    
+    // Use the new overlay notification system
+    overlay::show_overlay(state);
 }
+
+
 
 /// Initialize system tray icon with context menu
 pub fn init_tray_icon() -> Result<()> {
@@ -79,116 +83,228 @@ pub fn init_tray_icon() -> Result<()> {
     
     info!("Initializing system tray icon");
     
-    // Channel for our application's MenuActions (used by show_tray_menu)
+    // Channel for our application's MenuActions
     let (action_tx, action_rx): (Sender<MenuAction>, Receiver<MenuAction>) = std::sync::mpsc::channel();
     *MENU_CHANNEL.lock() = Some(action_tx);
-    
-    // Store the MenuAction receiver for process_menu_actions
-    static ACTION_RECEIVER: Lazy<Mutex<Option<Receiver<MenuAction>>>> = Lazy::new(|| Mutex::new(None));
     *ACTION_RECEIVER.lock() = Some(action_rx);
     
-    // Create the menu (even though events aren't handled by tray-icon directly)
-    let mut menu = Menu::new();
+    // Channel for icon updates
+    let (icon_tx, icon_rx): (Sender<AppState>, Receiver<AppState>) = std::sync::mpsc::channel();
+    *ICON_UPDATE_SENDER.lock() = Some(icon_tx);
+    
+    // Start the tray icon thread
+    thread::spawn(move || {
+        if let Err(e) = run_tray_icon_thread(icon_rx) {
+            error!("Tray icon thread error: {}", e);
+        }
+    });
+    
+    info!("Successfully started tray icon thread");
+    Ok(())
+}
+
+/// Run the tray icon in its own thread
+fn run_tray_icon_thread(icon_rx: Receiver<AppState>) -> Result<()> {
+    // Create the menu
+    let menu = Menu::new();
     let settings_item = MenuItem::new("Settings", true, None);
-    let exit_item = MenuItem::new("Exit", true, None);
+    let about_item = MenuItem::new("About", true, None);
     let separator = MenuItem::new("", false, None);
+    let exit_item = MenuItem::new("Exit", true, None);
+
+    // Store menu IDs for event handling
+    *SETTINGS_MENU_ID.lock() = Some(settings_item.id().clone());
+    *ABOUT_MENU_ID.lock() = Some(about_item.id().clone());
+    *EXIT_MENU_ID.lock() = Some(exit_item.id().clone());
 
     menu.append_items(&[
         &settings_item,
+        &about_item,
         &separator,
         &exit_item,
     ]).context("Failed to add menu items")?;
 
-    // Build the tray icon
-    let icon_data = create_icon_rgba(128, 128, 128); // Start with gray (default)
-    let icon = Icon::from_rgba(icon_data.clone(), 16, 16)
+    // Build the tray icon with grey color (normal state)
+    let icon_data = create_icon_rgba(128, 128, 128); // Start with grey
+    let icon = Icon::from_rgba(icon_data, 16, 16)
         .context("Failed to create icon from RGBA data")?;
     
-    let tray_icon_builder = TrayIconBuilder::new()
-        .with_menu(Box::new(menu)) // Attach the menu visually
-        .with_tooltip("Push-to-Whisper")
+    let tray_icon = TrayIconBuilder::new()
+        .with_menu(Box::new(menu))
+        .with_tooltip("Push-to-Whisper - Ready")
         .with_icon(icon)
-        .with_menu_on_left_click(false); // Don't show default menu
+        .build()
+        .context("Failed to build tray icon")?;
         
-    // Build and store the tray icon
-    match tray_icon_builder.build() {
-        Ok(tray_icon) => {
-            info!("Successfully created system tray icon (menu events handled manually)");
-            
-            // Store in thread-local
-            TRAY_ICON.with(|tray_icon_ref| {
-                *tray_icon_ref.borrow_mut() = Some(tray_icon);
-            });
-            
-            // No event handling thread needed here
-            
-            Ok(())
-        },
-        Err(e) => {
-            error!("Failed to create tray icon: {}", e);
-            Err(anyhow::anyhow!("Failed to create tray icon: {}", e))
+    // Store the tray icon in thread-local storage
+    TRAY_ICON.with(|icon_ref| {
+        *icon_ref.borrow_mut() = Some(tray_icon);
+    });
+    
+    // Event handling loop
+    let menu_channel = MenuEvent::receiver();
+    let tray_channel = TrayIconEvent::receiver();
+    
+    loop {
+        // Handle menu events
+        if let Ok(event) = menu_channel.try_recv() {
+            handle_menu_event(event);
+        }
+        
+        // Handle tray icon events (clicks)
+        if let Ok(event) = tray_channel.try_recv() {
+            handle_tray_event(event);
+        }
+        
+        // Handle icon update requests
+        if let Ok(new_state) = icon_rx.try_recv() {
+            update_tray_icon_internal(new_state);
+        }
+        
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// Handle menu events
+fn handle_menu_event(event: MenuEvent) {
+    let settings_id = SETTINGS_MENU_ID.lock().clone();
+    let about_id = ABOUT_MENU_ID.lock().clone();
+    let exit_id = EXIT_MENU_ID.lock().clone();
+    
+    if let Some(sender) = &*MENU_CHANNEL.lock() {
+        let action = if Some(&event.id) == settings_id.as_ref() {
+            Some(MenuAction::OpenSettings)
+        } else if Some(&event.id) == about_id.as_ref() {
+            Some(MenuAction::ShowAbout)
+        } else if Some(&event.id) == exit_id.as_ref() {
+            Some(MenuAction::Quit)
+        } else {
+            None
+        };
+        
+        if let Some(action) = action {
+            if let Err(e) = sender.send(action) {
+                error!("Failed to send menu action: {}", e);
+            }
         }
     }
 }
 
-/// Helper function to create an RGBA buffer for a 16x16 icon with the specified color
+/// Handle tray icon events (clicks)
+fn handle_tray_event(event: TrayIconEvent) {
+    match event {
+        TrayIconEvent::Click { button, .. } => {
+            match button {
+                tray_icon::MouseButton::Left => {
+                    // Left click opens settings
+                    if let Some(sender) = &*MENU_CHANNEL.lock() {
+                        if let Err(e) = sender.send(MenuAction::OpenSettings) {
+                            error!("Failed to send settings action: {}", e);
+                        }
+                    }
+                },
+                tray_icon::MouseButton::Right => {
+                    // Right click shows context menu (handled automatically by tray-icon)
+                },
+                _ => {}
+            }
+        },
+        _ => {}
+    }
+}
+
+/// Helper function to create an RGBA buffer for a 16x16 circular icon with the specified color
 fn create_icon_rgba(r: u8, g: u8, b: u8) -> Vec<u8> {
     let mut rgba = Vec::with_capacity(16 * 16 * 4);
+    let center = 8.0; // Center of 16x16 icon
+    let radius = 6.5; // Slightly smaller than half to create nice circular shape
     
-    for _y in 0..16 {
-        for _x in 0..16 {
-            rgba.push(r);  // R
-            rgba.push(g);  // G
-            rgba.push(b);  // B
-            rgba.push(255); // A (fully opaque)
+    for y in 0..16 {
+        for x in 0..16 {
+            let dx = x as f32 - center;
+            let dy = y as f32 - center;
+            let distance = (dx * dx + dy * dy).sqrt();
+            
+            if distance <= radius {
+                // Inside the circle - use the specified color
+                rgba.push(r);  // R
+                rgba.push(g);  // G
+                rgba.push(b);  // B
+                rgba.push(255); // A (fully opaque)
+            } else if distance <= radius + 1.0 {
+                // Anti-aliasing edge - blend with transparency
+                let alpha = ((radius + 1.0 - distance) * 255.0) as u8;
+                rgba.push(r);  // R
+                rgba.push(g);  // G
+                rgba.push(b);  // B
+                rgba.push(alpha); // A (anti-aliased)
+            } else {
+                // Outside the circle - transparent
+                rgba.push(0);   // R
+                rgba.push(0);   // G
+                rgba.push(0);   // B
+                rgba.push(0);   // A (transparent)
+            }
         }
     }
     
     rgba
 }
 
-/// Update the tray icon based on application state
+/// Update the tray icon based on application state (called from main thread)
 pub fn update_tray_icon(state: AppState) {
     if !ENABLE_SYSTEM_TRAY {
         return;
     }
     
-    debug!("[Thread {:?}] Attempting to update tray icon to state: {:?}", std::thread::current().id(), state);
+    debug!("Requesting tray icon update to state: {:?}", state);
     
     // Store the current state
     *APP_STATE.lock() = state;
     
+    // Show visual notification for recording/transcribing states
+    show_visual_notification(state);
+    
+    // Send update request to tray icon thread
+    if let Some(sender) = &*ICON_UPDATE_SENDER.lock() {
+        if let Err(e) = sender.send(state) {
+            error!("Failed to send icon update request: {}", e);
+        }
+    }
+}
+
+/// Update the tray icon internally (called from tray icon thread)
+fn update_tray_icon_internal(state: AppState) {
+    debug!("Updating tray icon to state: {:?}", state);
+    
     // Get the icon data for the current state
     let icon_data = match state {
         AppState::Normal => {
-            debug!("[Thread {:?}] Creating GRAY icon", std::thread::current().id());
-            create_icon_rgba(128, 128, 128)      // Gray
+            debug!("Creating GREY icon for normal state");
+            create_icon_rgba(128, 128, 128)      // Grey
         },
         AppState::Recording => {
-            debug!("[Thread {:?}] Creating RED icon", std::thread::current().id());
-            create_icon_rgba(220, 0, 0)       // Red (changed from Green)
+            debug!("Creating RED icon for recording state");
+            create_icon_rgba(220, 20, 20)        // Red
         },
         AppState::Transcribing => {
-            debug!("[Thread {:?}] Creating BLUE icon", std::thread::current().id());
-            create_icon_rgba(0, 0, 200)    // Blue
+            debug!("Creating AMBER icon for transcribing state");
+            create_icon_rgba(255, 191, 0)        // Amber/Orange
         },
     };
     
-    // Create the icon from RGBA data
-    match Icon::from_rgba(icon_data.clone(), 16, 16) {
+    // Create the icon from RGBA data and update
+    match Icon::from_rgba(icon_data, 16, 16) {
         Ok(icon) => {
             TRAY_ICON.with(|tray_icon_ref| {
-                let borrow = tray_icon_ref.borrow();
-                if let Some(tray_icon) = &*borrow {
-                    debug!("[Thread {:?}] Found tray icon, setting icon for state: {:?}", std::thread::current().id(), state);
-                    if let Err(err) = tray_icon.set_icon(Some(icon.clone())) {
+                if let Some(tray_icon) = &*tray_icon_ref.borrow() {
+                    if let Err(err) = tray_icon.set_icon(Some(icon)) {
                         error!("Failed to update tray icon: {}", err);
                     } else {
-                        debug!("[Thread {:?}] Successfully set tray icon to state: {:?}", std::thread::current().id(), state);
+                        debug!("Successfully updated tray icon to state: {:?}", state);
                     }
                 } else {
-                    // Log specifically when the icon is None in thread-local
-                    warn!("[Thread {:?}] No tray icon found in thread-local storage for update!", std::thread::current().id());
+                    warn!("No tray icon found for update!");
                 }
             });
         },
@@ -197,72 +313,23 @@ pub fn update_tray_icon(state: AppState) {
         }
     }
     
-    // Update tooltip
+    // Update tooltip based on state
     let tooltip = match state {
-        AppState::Normal => "Push-to-Whisper (Idle)",
-        AppState::Recording => "Push-to-Whisper (Recording...)",
-        AppState::Transcribing => "Push-to-Whisper (Transcribing...)",
+        AppState::Normal => "Push-to-Whisper - Ready",
+        AppState::Recording => "Push-to-Whisper - Recording...",
+        AppState::Transcribing => "Push-to-Whisper - Transcribing...",
     };
     
     TRAY_ICON.with(|tray_icon_ref| {
-         let borrow = tray_icon_ref.borrow();
-         if let Some(tray_icon) = &*borrow {
-            if let Err(err) = tray_icon.set_tooltip(Some(tooltip.to_string())) {
+        if let Some(tray_icon) = &*tray_icon_ref.borrow() {
+            if let Err(err) = tray_icon.set_tooltip(Some(tooltip)) {
                 error!("Failed to update tooltip: {}", err);
-            } else {
-                debug!("[Thread {:?}] Updated tooltip to: {}", std::thread::current().id(), tooltip);
-            }
-        } else {
-             warn!("[Thread {:?}] No tray icon found in thread-local storage for tooltip update!", std::thread::current().id());
-        }
-    });
-    
-    // If recording just started, show notification
-    if state == AppState::Recording {
-        show_recording_notification();
-    }
-}
-
-/// Show notification that recording has started
-#[cfg(target_os = "windows")]
-fn show_recording_notification() {
-    use windows_sys::Win32::UI::WindowsAndMessaging::MessageBoxA;
-    
-    info!("Showing recording notification");
-    
-    // Just update the tooltip with a stronger message
-    TRAY_ICON.with(|tray_icon_ref| {
-        let borrow = tray_icon_ref.borrow();
-        if let Some(tray_icon) = &*borrow {
-            // Use a distinct tooltip to indicate recording
-            if let Err(err) = tray_icon.set_tooltip(Some("⚠️ RECORDING IN PROGRESS ⚠️".to_string())) {
-                error!("Failed to update tooltip for notification: {}", err);
             }
         }
     });
-    
-    // Optional: Use MessageBoxA for a temporary dialog
-    #[cfg(feature = "notify-dialog")]
-    {
-        let title_cstr = std::ffi::CString::new("Push-to-Whisper").unwrap();
-        let message_cstr = std::ffi::CString::new("Recording started...").unwrap();
-        
-        unsafe {
-            MessageBoxA(
-                0,
-                message_cstr.as_ptr() as *const _,
-                title_cstr.as_ptr() as *const _,
-                0
-            );
-        }
-    }
 }
 
-#[cfg(not(target_os = "windows"))]
-fn show_recording_notification() {
-    // Placeholder for non-Windows platforms
-    info!("Recording notification (non-Windows platform)");
-}
+// Removed unused recording notification functions
 
 /// Process any pending menu actions
 pub fn process_menu_actions() -> Result<bool> {
@@ -270,16 +337,12 @@ pub fn process_menu_actions() -> Result<bool> {
         return Ok(false);
     }
     
-    // Access the static receiver
-    static ACTION_RECEIVER: Lazy<Mutex<Option<Receiver<MenuAction>>>> = 
-        Lazy::new(|| Mutex::new(None));
-    
-    // Try to receive a message
-    let mut receiver_lock = ACTION_RECEIVER.lock();
+    // Try to receive a message from our global receiver
+    let receiver_lock = ACTION_RECEIVER.lock();
     if let Some(rx) = &*receiver_lock {
         match rx.try_recv() {
             Ok(action) => {
-                info!("Received menu action in main thread: {:?}", action);
+                info!("Received menu action: {:?}", action);
                 match action {
                     MenuAction::OpenSettings => {
                         info!("Opening settings window");
@@ -292,24 +355,20 @@ pub fn process_menu_actions() -> Result<bool> {
                         show_about_dialog();
                     },
                     MenuAction::Quit => {
-                        info!("Quit menu action received in main thread");
+                        info!("Quit menu action received");
                         return Ok(true); // Signal the main loop to exit
                     },
                 }
                 return Ok(false);
             },
-            Err(mpsc::TryRecvError::Empty) => {
+            Err(std::sync::mpsc::TryRecvError::Empty) => {
                 // No message available, just continue
             },
-            Err(mpsc::TryRecvError::Disconnected) => {
-                // Channel disconnected, recreate it next time
-                warn!("Menu action channel disconnected, will recreate");
-                *receiver_lock = None;
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                warn!("Menu action channel disconnected");
             },
         }
     }
-    
-    // T key trigger removed as requested
     
     Ok(false)
 }
@@ -322,13 +381,9 @@ pub fn cleanup_tray() {
     
     info!("Cleaning up system tray resources");
     
-    // Use thread-local storage
-    TRAY_ICON.with(|icon| {
-        *icon.borrow_mut() = None;
-    });
-    
-    TRAY_MENU.with(|menu| {
-        *menu.borrow_mut() = None;
+    // Clear the thread-local tray icon
+    TRAY_ICON.with(|icon_ref| {
+        *icon_ref.borrow_mut() = None;
     });
 }
 
@@ -353,7 +408,7 @@ fn show_about_dialog() {
 /// Show a message box (Windows specific)
 #[cfg(target_os = "windows")]
 pub fn show_message_box(title: &str, message: &str, icon_type: u32) {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxA, MB_OK, MB_ICONINFORMATION};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxA, MB_OK};
     
     let title_cstr = std::ffi::CString::new(title).unwrap();
     let message_cstr = std::ffi::CString::new(message).unwrap();
@@ -373,64 +428,4 @@ pub fn show_message_box(_title: &str, _message: &str, _icon_type: u32) {
     // Placeholder for non-Windows platforms
 }
 
-// Add function to show the tray menu
-#[cfg(target_os = "windows")]
-fn show_tray_menu() {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        CreatePopupMenu, TrackPopupMenu, DestroyMenu,
-        TPM_LEFTALIGN, TPM_BOTTOMALIGN,
-        GetCursorPos, AppendMenuA, MF_STRING
-    };
-    use windows_sys::Win32::Foundation::POINT;
-    
-    info!("Showing tray menu");
-    
-    unsafe {
-        // Get cursor position
-        let mut point = POINT { x: 0, y: 0 };
-        GetCursorPos(&mut point);
-        
-        // Create popup menu
-        let menu = CreatePopupMenu();
-        if menu != 0 {
-            // Add items - using ASCII codes
-            let settings = "Settings\0".as_ptr();
-            let quit = "Exit\0".as_ptr();
-            
-            AppendMenuA(menu, MF_STRING, 1, settings);
-            AppendMenuA(menu, MF_STRING, 2, quit);
-            
-            // Show menu
-            let cmd = TrackPopupMenu(
-                menu, 
-                TPM_LEFTALIGN | TPM_BOTTOMALIGN, 
-                point.x, point.y, 
-                0, 0, std::ptr::null_mut()
-            );
-            
-            // Process selection
-            if cmd > 0 {
-                // Map to our MenuAction enum
-                let action = match cmd {
-                    1 => MenuAction::OpenSettings,
-                    2 => MenuAction::Quit,
-                    _ => {
-                        DestroyMenu(menu);
-                        return;
-                    },
-                };
-                
-                // Forward to our action channel
-                if let Some(menu_tx) = &*MENU_CHANNEL.lock() {
-                    info!("Sending menu action: {:?}", action);
-                    if let Err(e) = menu_tx.send(action) {
-                        error!("Failed to send menu action: {}", e);
-                    }
-                }
-            }
-            
-            // Clean up
-            DestroyMenu(menu);
-        }
-    }
-} 
+// Removed unused show_tray_menu function 

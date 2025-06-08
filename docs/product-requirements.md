@@ -23,7 +23,7 @@ Push-to-Whisper enables users to transcribe speech in real-time using a simple p
 - **Requirement**: The application shall provide a push-to-speak mechanism activated by holding a designated key.
 - **Details**:
   - Default activation key: Right Control
-  - Recording starts after holding the key for a configurable threshold (default: 500ms)
+  - Recording starts after holding the key for a configurable threshold (default: 50ms)
   - Recording stops when the key is released
   - Visual and audio feedback indicates recording state
 
@@ -57,21 +57,41 @@ Push-to-Whisper enables users to transcribe speech in real-time using a simple p
 #### 2.2.1 System Tray Integration
 - **Requirement**: The application shall provide a system tray icon for status indication and control.
 - **Details**:
-  - Visual indication of recording state
+  - Visual indication of recording state (grey=ready, red=recording, orange=transcribing)
+  - Left-click opens settings window
   - Right-click menu for configuration and exit
   - Minimal UI footprint
+
+#### 2.2.5 Settings Configuration Window
+- **Requirement**: The application shall provide a graphical settings interface accessible from the system tray.
+- **Details**:
+  - General settings (audio feedback, visual feedback, system tray)
+  - Audio settings (long press threshold, headphone keepalive, debug recording)
+  - Whisper AI settings (model size, CPU mode)
+  - Real-time configuration updates
+  - Settings persistence to configuration file
 
 #### 2.2.2 Audio Feedback
 - **Requirement**: The application shall provide optional audio feedback for recording events.
 - **Details**:
   - Beep sounds for recording start/stop
+  - Configurable volume control (0.0 to 1.0)
   - Configurable enable/disable option
+
+#### 2.2.6 Visual Overlay Notifications
+- **Requirement**: The application shall provide non-intrusive visual feedback during operations.
+- **Details**:
+  - Small overlay window in bottom-right corner (250x60 pixels)
+  - Semi-transparent (90% opacity) with colored backgrounds
+  - Red background for recording, orange for transcribing
+  - Never steals focus or moves cursor position
+  - Automatically appears/disappears based on operation state
 
 #### 2.2.3 Headphone Protection
 - **Requirement**: The application shall prevent wireless headphones from auto-disconnecting during extended periods of inactivity.
 - **Details**:
   - Periodic audio signals to keep headphone connection active
-  - Configurable interval (default: 30 seconds)
+  - Configurable interval (default: 30 seconds, 0 to disable)
   - Option to disable this feature
 
 #### 2.2.4 Model Selection
@@ -173,9 +193,9 @@ Push-to-Whisper enables users to transcribe speech in real-time using a simple p
 - **Cross-Platform Support**: Extend to Linux and macOS
 - **Custom Activation Phrases**: Option to start recording with voice command
 - **Transcription History**: Optional logging of past transcriptions
-- **UI Configuration Panel**: Graphical interface for settings
 - **Multiple Language Support**: Improved handling of non-English languages
 - **Custom Hotkey Combinations**: Support for key combinations as activation trigger
+- **Enhanced Visual Customization**: Configurable overlay position and appearance
 
 ### 6.2 Technical Improvements
 - **Reduced Model Size**: Optimized models for faster loading and lower resource usage
