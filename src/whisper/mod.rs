@@ -258,12 +258,20 @@ pub fn transcribe_audio(audio_data: &[f32]) -> Result<String> {
     params.set_print_progress(false);
     params.set_print_timestamps(false);
     
-    // Add a progress callback to yield CPU periodically
+    // Add a progress callback to yield CPU and GPU resources periodically
     params.set_progress_callback(|_progress| {
         // Yield to other threads periodically to maintain system responsiveness
         std::thread::yield_now();
-        // Sleep briefly to reduce CPU usage
-        std::thread::sleep(std::time::Duration::from_micros(100));
+        
+        // More aggressive GPU yielding - longer sleep to allow GPU context switching
+        std::thread::sleep(std::time::Duration::from_millis(1));
+        
+        // Force thread context switch on Windows for better system responsiveness
+        #[cfg(target_os = "windows")]
+        unsafe {
+            use windows_sys::Win32::System::Threading::SwitchToThread;
+            SwitchToThread();
+        }
     });
 
     // Create state
