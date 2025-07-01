@@ -161,10 +161,12 @@ pub async fn load_model(model_size: &str) -> Result<()> {
     if cuda_available && !force_cpu {
         info!("Attempting to load model with GPU acceleration...");
         
+        let mut params = WhisperContextParameters::default();
+        params.use_gpu(true); // Explicitly enable GPU if available
+        
         match WhisperContext::new_with_params(
             &model_path.to_string_lossy(),
-            WhisperContextParameters::default()
-                .use_gpu(true) // Explicitly enable GPU if available
+            params
         ) {
             Ok(ctx) => {
                 info!("Successfully loaded model with GPU acceleration");
