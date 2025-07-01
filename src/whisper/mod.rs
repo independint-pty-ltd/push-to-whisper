@@ -255,9 +255,6 @@ pub fn transcribe_audio(audio_data: &[f32]) -> Result<String> {
     params.set_print_special(false);
     params.set_print_progress(false);
     params.set_print_timestamps(false);
-    params.set_single_segment(true); // Enable single segment mode for faster processing
-    params.set_speed_up(true); // Enable speed up for faster transcription
-    params.set_audio_ctx(512); // Reduce audio context for faster processing
 
     // Create state
     info!("Creating Whisper state");

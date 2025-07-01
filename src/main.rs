@@ -96,7 +96,7 @@ async fn main() -> Result<()> {
     });
     
     // Main event loop
-    let ticker = tick(Duration::from_millis(16));
+    let ticker = tick(Duration::from_millis(50)); // Balanced timing for responsiveness without excessive CPU usage
     let state_update_rx = get_state_update_receiver();
     
     let mut last_known_state = AppState::Normal; // Initialize state correctly
