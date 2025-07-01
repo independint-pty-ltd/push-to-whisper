@@ -257,6 +257,14 @@ pub fn transcribe_audio(audio_data: &[f32]) -> Result<String> {
     params.set_print_special(false);
     params.set_print_progress(false);
     params.set_print_timestamps(false);
+    
+    // Add a progress callback to yield CPU periodically
+    params.set_progress_callback(|_progress| {
+        // Yield to other threads periodically to maintain system responsiveness
+        std::thread::yield_now();
+        // Sleep briefly to reduce CPU usage
+        std::thread::sleep(std::time::Duration::from_micros(100));
+    });
 
     // Create state
     info!("Creating Whisper state");

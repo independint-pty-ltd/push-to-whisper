@@ -213,10 +213,22 @@ pub fn stop_recording() -> Result<()> {
         // Set lower thread priority to prevent system lag
         #[cfg(target_os = "windows")]
         {
-            use windows_sys::Win32::System::Threading::{GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_BELOW_NORMAL};
+            use windows_sys::Win32::System::Threading::{GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_LOWEST, THREAD_PRIORITY_BELOW_NORMAL, THREAD_PRIORITY_NORMAL};
+            
+            // Get transcription priority from config
+            let config = crate::utils::get_config();
+            let priority = match config.transcription_priority.as_str() {
+                "low" => THREAD_PRIORITY_LOWEST,
+                "normal" => THREAD_PRIORITY_BELOW_NORMAL,
+                "high" => THREAD_PRIORITY_NORMAL,
+                _ => THREAD_PRIORITY_LOWEST, // Default to low
+            };
+            
             unsafe {
-                SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+                SetThreadPriority(GetCurrentThread(), priority);
             }
+            
+            info!("Set transcription thread priority to: {}", config.transcription_priority);
         }
         
         #[cfg(target_os = "linux")]
