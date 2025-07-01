@@ -247,15 +247,15 @@ While currently Windows-only, support for Linux and macOS is planned for future 
 
 ## Documentation
 
-Comprehensive documentation is available in the following locations:
+### Core Specifications
+- **[Specifications](spec/)** - Requirements, design, and development tasks that drive the project
 
-- **[Technical Documentation](docs/)** - Complete technical documentation including PRD, implementation guides, and feature documentation
+### Technical Documentation
+- **[Technical Documentation](docs/)** - Implementation guides, feature documentation, and technical details
 - **[Release Notes](release_notes/)** - Version history and detailed release information
 - **[API Documentation](https://docs.rs/push-to-whisper)** - Generated API documentation (when published)
 
 ### Key Documentation
-
-- **[Product Requirements](docs/product-requirements.md)** - Complete product specification
 - **[System Tray Guide](docs/tray-icon.md)** - System tray functionality and usage
 - **[Overlay Notifications](docs/overlay-notifications.md)** - Non-intrusive notification system
 - **[Performance Optimizations](docs/performance-optimizations.md)** - Performance tuning and optimization details
