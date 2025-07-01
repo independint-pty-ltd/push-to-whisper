@@ -204,12 +204,12 @@ pub fn stop_recording() -> Result<()> {
     // Set the atomic flag after sending the update
     TRANSCRIBING.store(true, Ordering::SeqCst);
     
-    // Process with Whisper in a separate thread to avoid blocking
+    // Process with Whisper in a separate thread - TRULY ASYNCHRONOUS
     info!("Starting transcription with Whisper in background thread");
     
     // Clone the audio data for the background thread
     let audio_data_clone = audio_data.clone();
-    let transcription_handle = thread::spawn(move || {
+    thread::spawn(move || {
         // Set lower thread priority to prevent system lag
         #[cfg(target_os = "windows")]
         {
@@ -237,27 +237,26 @@ pub fn stop_recording() -> Result<()> {
             // For now, we'll rely on the thread scheduler
         }
         
-        process_transcription(audio_data_clone)
+        // Process transcription and handle completion asynchronously
+        let transcription_result = process_transcription(audio_data_clone);
+        
+        info!("Transcription process completed with result: {:?}", transcription_result.is_ok());
+        
+        // Set Transcribing flag to false AFTER processing completes
+        TRANSCRIBING.store(false, Ordering::SeqCst);
+        
+        // Send Normal state update AFTER transcription finishes (or fails)
+        send_state_update(AppState::Normal);
+        
+        // Log any errors but don't block the main thread
+        if let Err(e) = transcription_result {
+            error!("Transcription failed: {}", e);
+        }
     });
     
-    // Wait for transcription to complete
-    let transcription_result = match transcription_handle.join() {
-        Ok(result) => result,
-        Err(_) => {
-            error!("Transcription thread panicked");
-            Err(anyhow::anyhow!("Transcription thread panicked"))
-        }
-    };
-    
-    info!("Transcription process completed with result: {:?}", transcription_result.is_ok());
-    
-    // Set Transcribing flag to false AFTER processing completes
-    TRANSCRIBING.store(false, Ordering::SeqCst);
-    
-    // Send Normal state update AFTER transcription finishes (or fails)
-    send_state_update(AppState::Normal);
-    
-    transcription_result // Return the result of process_transcription
+    // Return immediately - don't wait for transcription to complete!
+    info!("Transcription started in background - returning control immediately");
+    Ok(())
 }
 
 // Helper function to process audio for Whisper
