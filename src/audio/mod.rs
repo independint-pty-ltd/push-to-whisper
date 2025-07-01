@@ -43,7 +43,7 @@ impl Default for AudioConfig {
 
 // Global state
 static TRANSCRIBING: AtomicBool = AtomicBool::new(false);
-static AUDIO_BUFFER: Lazy<Mutex<Vec<f32>>> = Lazy::new(|| Mutex::new(Vec::with_capacity(SAMPLE_RATE as usize * 60)));
+static AUDIO_BUFFER: Lazy<Mutex<Vec<f32>>> = Lazy::new(|| Mutex::new(Vec::with_capacity(SAMPLE_RATE as usize * 300))); // 5 minutes buffer
 
 // Helper function to update activity time
 fn update_activity_time() {

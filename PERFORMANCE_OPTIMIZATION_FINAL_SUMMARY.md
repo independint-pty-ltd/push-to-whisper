@@ -49,7 +49,7 @@ thread::sleep(Duration::from_millis(1));
 **Additional Changes**:
 - Moved transcription to separate background thread with lower priority
 - Added Windows thread priority setting (`THREAD_PRIORITY_BELOW_NORMAL`)
-- Reduced audio buffer capacity from 300s to 60s (80% memory reduction)
+- Set audio buffer capacity to 300s (5 minutes) for extended recording sessions
 
 ### 3. Whisper Processing Optimization (`src/whisper/mod.rs`)
 ```rust
@@ -115,7 +115,7 @@ pub const DEFAULT_LONG_PRESS_THRESHOLD: u64 = 25; // ms
 | Audio Thread | 10ms delays | 1ms delays | **10x faster** |
 | UI Updates | 10ms delays | 5ms delays | **2x faster** |
 | Text Input | 50ms + 2ms/char | 5ms + 1ms/char | **10x + 2x faster** |
-| Memory Usage | 4.8MB buffer | 0.96MB buffer | **80% reduction** |
+| Memory Usage | 4.8MB buffer | 4.8MB buffer | **Optimized for 5min recordings** |
 | Transcription | Blocking main thread | Background thread | **Non-blocking** |
 | Hotkey Response | 50ms threshold | 25ms threshold | **2x more responsive** |
 
@@ -127,7 +127,7 @@ The optimizations specifically address mouse lag through multiple mechanisms:
 2. **Non-blocking Transcription**: Heavy Whisper processing no longer freezes the UI thread
 3. **Reduced System Load**: Lower thread priorities and memory usage reduce overall system stress
 4. **Minimized Delays**: All artificial delays throughout the system have been reduced
-5. **Memory Pressure Relief**: 80% reduction in audio buffer size reduces garbage collection impact
+5. **Optimized Buffer Size**: 5-minute audio buffer capacity supports extended recording sessions
 
 ## Testing and Validation
 
