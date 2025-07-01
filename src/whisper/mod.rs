@@ -164,7 +164,7 @@ pub async fn load_model(model_size: &str) -> Result<()> {
         match WhisperContext::new_with_params(
             &model_path.to_string_lossy(),
             WhisperContextParameters::default()
-                .with_use_gpu(true) // Explicitly enable GPU if available
+                .use_gpu(true) // Explicitly enable GPU if available
         ) {
             Ok(ctx) => {
                 info!("Successfully loaded model with GPU acceleration");

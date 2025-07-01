@@ -213,7 +213,6 @@ pub fn stop_recording() -> Result<()> {
         // Set lower thread priority to prevent system lag
         #[cfg(target_os = "windows")]
         {
-            use std::ptr;
             use windows_sys::Win32::System::Threading::{GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_BELOW_NORMAL};
             unsafe {
                 SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
