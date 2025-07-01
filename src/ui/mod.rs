@@ -34,7 +34,7 @@ pub enum AppState {
 // Event types
 #[derive(Debug, Clone)]
 pub enum MenuAction {
-    OpenSettings,
+    OpenConfigure,
     ShowAbout,
     Quit,
 }
@@ -107,18 +107,18 @@ pub fn init_tray_icon() -> Result<()> {
 fn run_tray_icon_thread(icon_rx: Receiver<AppState>) -> Result<()> {
     // Create the menu
     let menu = Menu::new();
-    let settings_item = MenuItem::new("Settings", true, None);
+    let configure_item = MenuItem::new("Configure", true, None);
     let about_item = MenuItem::new("About", true, None);
     let separator = MenuItem::new("", false, None);
     let exit_item = MenuItem::new("Exit", true, None);
 
     // Store menu IDs for event handling
-    *SETTINGS_MENU_ID.lock() = Some(settings_item.id().clone());
+    *SETTINGS_MENU_ID.lock() = Some(configure_item.id().clone());
     *ABOUT_MENU_ID.lock() = Some(about_item.id().clone());
     *EXIT_MENU_ID.lock() = Some(exit_item.id().clone());
 
     menu.append_items(&[
-        &settings_item,
+        &configure_item,
         &about_item,
         &separator,
         &exit_item,
@@ -173,7 +173,7 @@ fn handle_menu_event(event: MenuEvent) {
     
     if let Some(sender) = &*MENU_CHANNEL.lock() {
         let action = if Some(&event.id) == settings_id.as_ref() {
-            Some(MenuAction::OpenSettings)
+            Some(MenuAction::OpenConfigure)
         } else if Some(&event.id) == about_id.as_ref() {
             Some(MenuAction::ShowAbout)
         } else if Some(&event.id) == exit_id.as_ref() {
@@ -196,10 +196,10 @@ fn handle_tray_event(event: TrayIconEvent) {
         TrayIconEvent::Click { button, .. } => {
             match button {
                 tray_icon::MouseButton::Left => {
-                    // Left click opens settings
+                    // Left click opens configuration window
                     if let Some(sender) = &*MENU_CHANNEL.lock() {
-                        if let Err(e) = sender.send(MenuAction::OpenSettings) {
-                            error!("Failed to send settings action: {}", e);
+                        if let Err(e) = sender.send(MenuAction::OpenConfigure) {
+                            error!("Failed to send configure action: {}", e);
                         }
                     }
                 },
@@ -344,8 +344,8 @@ pub fn process_menu_actions() -> Result<bool> {
             Ok(action) => {
                 info!("Received menu action: {:?}", action);
                 match action {
-                    MenuAction::OpenSettings => {
-                        info!("Opening settings window");
+                    MenuAction::OpenConfigure => {
+                        info!("Opening configuration window");
                         if let Err(e) = open_settings() {
                             error!("Failed to open settings: {}", e);
                         }

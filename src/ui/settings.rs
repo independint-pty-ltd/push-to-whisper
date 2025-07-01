@@ -22,7 +22,7 @@ struct SettingsApp {
 impl eframe::App for SettingsApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("🎙️ Push to Whisper Settings");
+            ui.heading("🎙️ Push to Whisper Configuration");
             ui.add_space(10.0);
             
             // Show restart warning if needed
@@ -134,7 +134,7 @@ impl eframe::App for SettingsApp {
             // Action buttons
             ui.horizontal(|ui| {
                 let save_button = ui.add_enabled(self.dirty, egui::Button::new("💾 Save"));
-                if save_button.clicked() {
+                if save_button.on_hover_text("Save configuration to file").clicked() {
                     if let Err(e) = self.save_settings() {
                         error!("Failed to save settings: {}", e);
                     } else {
@@ -148,16 +148,28 @@ impl eframe::App for SettingsApp {
                     }
                 }
                 
-                if ui.button("❌ Cancel").clicked() {
+                let save_restart_button = ui.add_enabled(self.dirty, egui::Button::new("💾🔄 Save & Restart"));
+                if save_restart_button.on_hover_text("Save configuration and restart application with new settings").clicked() {
+                    if let Err(e) = self.save_settings() {
+                        error!("Failed to save settings: {}", e);
+                    } else {
+                        info!("Settings saved successfully, restarting application...");
+                        *SETTINGS_WINDOW_OPEN.lock() = false;
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        self.restart_application();
+                    }
+                }
+                
+                if ui.button("❌ Cancel").on_hover_text("Close without saving changes").clicked() {
                     *SETTINGS_WINDOW_OPEN.lock() = false;
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 }
                 
-                if ui.button("🔄 Reset to Defaults").clicked() {
+                if ui.button("🔄 Reset to Defaults").on_hover_text("Reset all settings to default values").clicked() {
                     self.reset_to_defaults();
                 }
                 
-                if self.restart_required && ui.button("🔄 Restart Now").clicked() {
+                if self.restart_required && ui.button("🔄 Restart Now").on_hover_text("Restart application to apply changes").clicked() {
                     self.restart_application();
                 }
             });
@@ -219,18 +231,41 @@ impl SettingsApp {
         
         // Get the current executable path
         if let Ok(current_exe) = std::env::current_exe() {
-            // Start a new instance
-            match Command::new(&current_exe).spawn() {
+            // Get current command line arguments to preserve them
+            let args: Vec<String> = std::env::args().skip(1).collect();
+            
+            // Start a new instance with the same arguments
+            let mut command = Command::new(&current_exe);
+            if !args.is_empty() {
+                command.args(args);
+            }
+            
+            match command.spawn() {
                 Ok(_) => {
-                    info!("New instance started, requesting exit of current instance");
+                    info!("New instance started successfully, requesting exit of current instance");
+                    // Give the new instance a moment to start
+                    std::thread::sleep(std::time::Duration::from_millis(500));
                     request_exit();
                 },
                 Err(e) => {
                     error!("Failed to start new instance: {}", e);
+                    // Show error message to user
+                    #[cfg(target_os = "windows")]
+                    crate::ui::show_message_box(
+                        "Restart Failed", 
+                        &format!("Failed to restart application: {}\n\nPlease restart manually.", e), 
+                        0x10 // MB_ICONERROR
+                    );
                 }
             }
         } else {
             error!("Could not determine current executable path for restart");
+            #[cfg(target_os = "windows")]
+            crate::ui::show_message_box(
+                "Restart Failed", 
+                "Could not determine application path for restart.\n\nPlease restart manually.", 
+                0x10 // MB_ICONERROR
+            );
         }
     }
 }
