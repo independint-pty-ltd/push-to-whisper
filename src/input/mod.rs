@@ -181,7 +181,7 @@ pub fn type_text(text: &str) -> Result<()> {
                     
                     // Simulate Ctrl+V to paste
                     let mut enigo = Enigo::default();
-                    thread::sleep(Duration::from_millis(50));
+                    thread::sleep(Duration::from_millis(5)); // Reduced from 50ms to 5ms for faster response
                     enigo.key_down(Key::Control);
                     enigo.key_click(Key::Layout('v'));
                     enigo.key_up(Key::Control);
@@ -218,7 +218,7 @@ pub fn type_text(text: &str) -> Result<()> {
             let mut enigo = Enigo::default();
             for c in text.chars() {
                 enigo.key_click(Key::Layout(c));
-                thread::sleep(Duration::from_millis(2)); // Reduced from 5ms to 2ms for faster typing
+                thread::sleep(Duration::from_millis(1)); // Reduced from 2ms to 1ms for faster typing
             }
         }
     }

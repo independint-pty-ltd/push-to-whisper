@@ -43,7 +43,7 @@ impl Default for AudioConfig {
 
 // Global state
 static TRANSCRIBING: AtomicBool = AtomicBool::new(false);
-static AUDIO_BUFFER: Lazy<Mutex<Vec<f32>>> = Lazy::new(|| Mutex::new(Vec::with_capacity(SAMPLE_RATE as usize * 300)));
+static AUDIO_BUFFER: Lazy<Mutex<Vec<f32>>> = Lazy::new(|| Mutex::new(Vec::with_capacity(SAMPLE_RATE as usize * 60)));
 
 // Helper function to update activity time
 fn update_activity_time() {
@@ -204,9 +204,40 @@ pub fn stop_recording() -> Result<()> {
     // Set the atomic flag after sending the update
     TRANSCRIBING.store(true, Ordering::SeqCst);
     
-    // Process with Whisper
-    info!("Starting transcription with Whisper");
-    let transcription_result = process_transcription(audio_data);
+    // Process with Whisper in a separate thread to avoid blocking
+    info!("Starting transcription with Whisper in background thread");
+    
+    // Clone the audio data for the background thread
+    let audio_data_clone = audio_data.clone();
+    let transcription_handle = thread::spawn(move || {
+        // Set lower thread priority to prevent system lag
+        #[cfg(target_os = "windows")]
+        {
+            use std::ptr;
+            use windows_sys::Win32::System::Threading::{GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_BELOW_NORMAL};
+            unsafe {
+                SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+            }
+        }
+        
+        #[cfg(target_os = "linux")]
+        {
+            // On Linux, we could use nice() or setpriority(), but it requires additional dependencies
+            // For now, we'll rely on the thread scheduler
+        }
+        
+        process_transcription(audio_data_clone)
+    });
+    
+    // Wait for transcription to complete
+    let transcription_result = match transcription_handle.join() {
+        Ok(result) => result,
+        Err(_) => {
+            error!("Transcription thread panicked");
+            Err(anyhow::anyhow!("Transcription thread panicked"))
+        }
+    };
+    
     info!("Transcription process completed with result: {:?}", transcription_result.is_ok());
     
     // Set Transcribing flag to false AFTER processing completes
@@ -437,7 +468,7 @@ fn try_build_input_stream(device: &cpal::Device, config: &cpal::StreamConfig) ->
     debug!("Recording thread running...");
     // We need to keep the stream alive while recording
     while RECORDING.load(Ordering::SeqCst) {
-        thread::sleep(Duration::from_millis(10)); // Reduced from 100ms to 10ms for faster response
+        thread::sleep(Duration::from_millis(1)); // Reduced from 10ms to 1ms for faster response
     }
 
     // Log the final buffer size for debugging

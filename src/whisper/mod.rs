@@ -164,6 +164,7 @@ pub async fn load_model(model_size: &str) -> Result<()> {
         match WhisperContext::new_with_params(
             &model_path.to_string_lossy(),
             WhisperContextParameters::default()
+                .with_use_gpu(true) // Explicitly enable GPU if available
         ) {
             Ok(ctx) => {
                 info!("Successfully loaded model with GPU acceleration");
@@ -254,6 +255,9 @@ pub fn transcribe_audio(audio_data: &[f32]) -> Result<String> {
     params.set_print_special(false);
     params.set_print_progress(false);
     params.set_print_timestamps(false);
+    params.set_single_segment(true); // Enable single segment mode for faster processing
+    params.set_speed_up(true); // Enable speed up for faster transcription
+    params.set_audio_ctx(512); // Reduce audio context for faster processing
 
     // Create state
     info!("Creating Whisper state");

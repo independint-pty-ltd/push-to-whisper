@@ -161,7 +161,7 @@ fn run_tray_icon_thread(icon_rx: Receiver<AppState>) -> Result<()> {
             update_tray_icon_internal(new_state);
         }
         
-        thread::sleep(Duration::from_millis(10));
+        thread::sleep(Duration::from_millis(5));
     }
 }
 
