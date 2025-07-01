@@ -461,6 +461,11 @@ pub fn parse_args() -> Args {
     args
 }
 
+/// Set the current configuration
+pub fn set_config(args: &Args) {
+    *CONFIG.lock().unwrap() = Some(args.clone());
+}
+
 /// Get the current configuration
 pub fn get_config() -> Args {
     if let Some(config) = &*CONFIG.lock().unwrap() {

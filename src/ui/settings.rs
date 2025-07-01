@@ -7,7 +7,7 @@ use std::process::Command;
 use eframe::egui;
 
 use crate::utils::{Args, get_config, save_config, VALID_MODELS, DEFAULT_MODEL, DEFAULT_LONG_PRESS_THRESHOLD, 
-                  DEFAULT_HEADPHONE_KEEPALIVE_INTERVAL, DEFAULT_ENABLE_DEBUG_RECORDING, DEFAULT_BEEP_VOLUME, request_exit};
+                  DEFAULT_HEADPHONE_KEEPALIVE_INTERVAL, DEFAULT_ENABLE_DEBUG_RECORDING, DEFAULT_BEEP_VOLUME, DEFAULT_TRANSCRIPTION_PRIORITY, request_exit};
 
 // Global state for the settings window
 static SETTINGS_WINDOW_OPEN: Lazy<Mutex<bool>> = Lazy::new(|| Mutex::new(false));
@@ -198,6 +198,7 @@ impl SettingsApp {
             enable_debug_recording: DEFAULT_ENABLE_DEBUG_RECORDING,
             force_cpu: false,
             beep_volume: DEFAULT_BEEP_VOLUME,
+            transcription_priority: DEFAULT_TRANSCRIPTION_PRIORITY.to_string(),
         };
         self.dirty = true;
         self.restart_required = true;

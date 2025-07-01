@@ -22,7 +22,7 @@ use crate::{
     whisper::load_model,
     ui::{update_tray_icon, process_menu_actions, cleanup_tray, AppState},
     input::start_keyboard_listener,
-    utils::{acquire_instance_lock, parse_args, Args},
+    utils::{acquire_instance_lock, parse_args, set_config, Args},
     state::get_state_update_receiver,
 };
 
@@ -170,6 +170,9 @@ async fn main() -> Result<()> {
 }
 
 async fn init_app(args: &Args) -> Result<()> {
+    // Store the configuration globally so other modules can access it
+    set_config(args);
+    
     // The lock file handling is now done in acquire_instance_lock()
     // which is called before this function
     
