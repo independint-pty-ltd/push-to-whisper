@@ -9,7 +9,7 @@ mod state;
 
 use anyhow::{Result, Context};
 use log::{error, info, warn, debug};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::Ordering;
 use std::thread;
 use std::time::Duration;
 use std::fs;
@@ -29,8 +29,8 @@ use crate::{
 // Configuration constants
 const LOCK_FILE_PATH: &str = "push-to-whisper.lock";
 
-// Global state
-static EXIT_REQUESTED: AtomicBool = AtomicBool::new(false);
+// Use the global EXIT_REQUESTED from utils for consistent shutdown handling
+use crate::utils::EXIT_REQUESTED;
 
 // Removed unused utility functions
 
@@ -83,7 +83,7 @@ async fn main() -> Result<()> {
     let config = utils::get_config();
     if config.headphone_keepalive_interval > 0 {
         info!("Starting headphone keepalive thread with interval of {}s", config.headphone_keepalive_interval);
-        if let Err(e) = headphone_keepalive_thread() {
+        if let Err(e) = headphone_keepalive_thread(config.headphone_keepalive_interval) {
             warn!("Failed to start headphone keepalive thread: {}", e);
         }
     }

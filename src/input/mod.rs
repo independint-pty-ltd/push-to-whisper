@@ -7,14 +7,14 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Instant, SystemTime, UNIX_EPOCH, Duration};
 use std::thread;
 
-use crate::utils::request_exit;
 // use crate::error::AppError; // Currently unused
 use crate::state::send_state_update;
 use crate::state::RECORDING;
 use crate::ui::AppState;
+use crate::utils::EXIT_REQUESTED;
 
 // Configuration
-pub const HOTKEY: RdevKey = RdevKey::ControlRight; // Using Right Control key as hotkey
+pub const HOTKEY: RdevKey = RdevKey::AltGr; // Default to Right Alt (AltGr); overridden by runtime config
 pub const LONG_PRESS_THRESHOLD: u64 = 500; // Reduced from 1000ms to 500ms for easier triggering
 pub const TEXT_INSERT_METHOD: TextInsertMethod = TextInsertMethod::Clipboard;
 pub const CLIPBOARD_RESTORE_DELAY: std::time::Duration = std::time::Duration::from_secs(10);
@@ -71,7 +71,13 @@ pub fn handle_keyboard_event(event: Event) -> Result<()> {
     
     match event.event_type {
         EventType::KeyPress(key) => {
-            if key == HOTKEY && !KEY_HANDLED.load(Ordering::SeqCst) {
+            // Determine configured hotkey at runtime
+            let configured_hotkey = match crate::utils::get_config().hotkey.as_str() {
+                "right_ctrl" => RdevKey::ControlRight,
+                _ => RdevKey::AltGr,
+            };
+
+            if key == configured_hotkey && !KEY_HANDLED.load(Ordering::SeqCst) {
                 KEY_HANDLED.store(true, Ordering::SeqCst);
                 
                 if !RECORDING.load(Ordering::SeqCst) && !HOTKEY_DOWN.load(Ordering::SeqCst) {
@@ -112,12 +118,17 @@ pub fn handle_keyboard_event(event: Event) -> Result<()> {
                 // Check for double-press within 500ms
                 if now - last_press < 500 {
                     info!("Double ESC pressed, exiting...");
-                    request_exit();
+                    EXIT_REQUESTED.store(true, Ordering::SeqCst);
                 }
             }
         },
         EventType::KeyRelease(key) => {
-            if key == HOTKEY {
+            // Determine configured hotkey at runtime
+            let configured_hotkey = match crate::utils::get_config().hotkey.as_str() {
+                "right_ctrl" => RdevKey::ControlRight,
+                _ => RdevKey::AltGr,
+            };
+            if key == configured_hotkey {
                 info!("Hotkey released");
                 KEY_HANDLED.store(false, Ordering::SeqCst);
                 HOTKEY_DOWN.store(false, Ordering::SeqCst);

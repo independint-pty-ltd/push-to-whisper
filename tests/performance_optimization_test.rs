@@ -9,7 +9,7 @@ use log::info;
 #[test]
 fn test_main_loop_responsiveness() -> Result<()> {
     // Test that our main loop tick rate is optimal for responsiveness
-    let config = get_config();
+    let _config = get_config();
     
     // The main loop should tick at 16ms (60 FPS) for smooth responsiveness
     let expected_tick_rate = Duration::from_millis(16);

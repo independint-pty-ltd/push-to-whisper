@@ -74,6 +74,19 @@ impl eframe::App for SettingsApp {
                     }
                     
                     ui.add_space(5.0);
+                    ui.label("🎛️ Activation hotkey:");
+                    let old_hotkey = self.settings.hotkey.clone();
+                    egui::ComboBox::from_label("Select hotkey")
+                        .selected_text(match self.settings.hotkey.as_str() { "right_ctrl" => "Right Ctrl", _ => "Right Alt" })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut self.settings.hotkey, "right_alt".to_string(), "Right Alt (default)");
+                            ui.selectable_value(&mut self.settings.hotkey, "right_ctrl".to_string(), "Right Ctrl");
+                        });
+                    if old_hotkey != self.settings.hotkey {
+                        self.check_for_changes();
+                    }
+
+                    ui.add_space(5.0);
                     ui.label("🎧 Headphone keepalive interval (s):");
                     ui.label("Prevents wireless headphones from disconnecting (0 = disabled)");
                     if ui.add(egui::Slider::new(&mut self.settings.headphone_keepalive_interval, 0..=120)
@@ -199,6 +212,7 @@ impl SettingsApp {
             force_cpu: false,
             beep_volume: DEFAULT_BEEP_VOLUME,
             transcription_priority: DEFAULT_TRANSCRIPTION_PRIORITY.to_string(),
+            hotkey: crate::utils::DEFAULT_HOTKEY.to_string(),
         };
         self.dirty = true;
         self.restart_required = true;

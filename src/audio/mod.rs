@@ -500,20 +500,21 @@ pub fn play_beep(frequency: u32, _duration_ms: u64) -> Result<()> {
     Ok(())
 }
 
-pub fn headphone_keepalive_thread() -> Result<()> {
-    if !KEEP_HEADPHONES_ALIVE {
+pub fn headphone_keepalive_thread(interval_secs: u64) -> Result<()> {
+    if !KEEP_HEADPHONES_ALIVE || interval_secs == 0 {
         return Ok(());
     }
 
     let (_stream, stream_handle) = OutputStream::try_default()?;
     let sink = Sink::try_new(&stream_handle)?;
-    
+
+    let sleep_duration = Duration::from_secs(interval_secs);
     thread::spawn(move || {
         loop {
             let source = SineWave::new(20.0); // Very low frequency
             sink.append(source);
             sink.sleep_until_end();
-            thread::sleep(HEADPHONE_KEEPALIVE_INTERVAL);
+            thread::sleep(sleep_duration);
         }
     });
 
