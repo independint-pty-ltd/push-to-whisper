@@ -20,6 +20,7 @@ const SAMPLE_RATE: u32 = 16000;
 const CHANNELS: u16 = 1;
 const KEEP_HEADPHONES_ALIVE: bool = true;
 const HEADPHONE_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(30);
+const MAX_RECORDING_DURATION: Duration = Duration::from_secs(300); // 5 minutes hard limit per session
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)] // Configuration struct - fields may be used in future
@@ -116,6 +117,20 @@ pub fn start_recording() -> Result<()> {
     if beeps_enabled {
         let _ = play_beep_async(1000, 100); // Reduced duration to 100ms for snappier feel
     }
+    
+    // Spawn a guard to enforce maximum recording duration (5 minutes)
+    std::thread::spawn(|| {
+        std::thread::sleep(MAX_RECORDING_DURATION);
+        if RECORDING.load(Ordering::SeqCst) {
+            warn!("Maximum recording duration ({}s) reached; auto-stopping and transcribing current audio", MAX_RECORDING_DURATION.as_secs());
+            let _ = play_beep_async(1200, 120);
+            // Provide user visual feedback via tray
+            send_state_update(AppState::Transcribing);
+            if let Err(e) = stop_recording() {
+                error!("Auto-stop after max duration failed: {}", e);
+            }
+        }
+    });
     
     Ok(())
 }
@@ -511,8 +526,12 @@ pub fn headphone_keepalive_thread(interval_secs: u64) -> Result<()> {
     let sleep_duration = Duration::from_secs(interval_secs);
     thread::spawn(move || {
         loop {
-            let source = SineWave::new(20.0); // Very low frequency
+            // Append a very short silent tone to tickle the device and keep it alive
+            let source = SineWave::new(20.0)
+                .take_duration(Duration::from_millis(50))
+                .amplify(0.0);
             sink.append(source);
+            // Wait for the tiny buffer to play out, then sleep for the configured interval
             sink.sleep_until_end();
             thread::sleep(sleep_duration);
         }

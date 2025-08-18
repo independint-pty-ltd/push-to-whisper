@@ -76,6 +76,8 @@ async fn main() -> Result<()> {
             // Initial state update on main thread
             update_tray_icon(ui::AppState::Normal);
             info!("System tray icon initialized successfully");
+            // Optional: minimize/keep background; the app runs headless with a tray icon only
+            // UI windows are created on demand (settings/about) via tray actions
         }
     }
     
