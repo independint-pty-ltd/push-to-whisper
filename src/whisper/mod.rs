@@ -161,9 +161,13 @@ pub async fn load_model(model_size: &str) -> Result<()> {
     if cuda_available && !force_cpu {
         info!("Attempting to load model with GPU acceleration...");
         
+        let params = WhisperContextParameters::default();
+        // Note: GPU usage might need to be configured differently depending on whisper-rs version
+        // For now, we'll try the default parameters and let whisper-rs handle GPU detection
+        
         match WhisperContext::new_with_params(
             &model_path.to_string_lossy(),
-            WhisperContextParameters::default()
+            params
         ) {
             Ok(ctx) => {
                 info!("Successfully loaded model with GPU acceleration");
@@ -254,6 +258,9 @@ pub fn transcribe_audio(audio_data: &[f32]) -> Result<String> {
     params.set_print_special(false);
     params.set_print_progress(false);
     params.set_print_timestamps(false);
+    
+    // Note: Progress callback requires C function pointer, not Rust closure
+    // System responsiveness will be maintained through other means
 
     // Create state
     info!("Creating Whisper state");

@@ -9,7 +9,7 @@ mod state;
 
 use anyhow::{Result, Context};
 use log::{error, info, warn, debug};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::Ordering;
 use std::thread;
 use std::time::Duration;
 use std::fs;
@@ -22,15 +22,15 @@ use crate::{
     whisper::load_model,
     ui::{update_tray_icon, process_menu_actions, cleanup_tray, AppState},
     input::start_keyboard_listener,
-    utils::{acquire_instance_lock, parse_args, Args},
+    utils::{acquire_instance_lock, parse_args, set_config, Args},
     state::get_state_update_receiver,
 };
 
 // Configuration constants
 const LOCK_FILE_PATH: &str = "push-to-whisper.lock";
 
-// Global state
-static EXIT_REQUESTED: AtomicBool = AtomicBool::new(false);
+// Use the global EXIT_REQUESTED from utils for consistent shutdown handling
+use crate::utils::EXIT_REQUESTED;
 
 // Removed unused utility functions
 
@@ -76,6 +76,8 @@ async fn main() -> Result<()> {
             // Initial state update on main thread
             update_tray_icon(ui::AppState::Normal);
             info!("System tray icon initialized successfully");
+            // Optional: minimize/keep background; the app runs headless with a tray icon only
+            // UI windows are created on demand (settings/about) via tray actions
         }
     }
     
@@ -83,7 +85,7 @@ async fn main() -> Result<()> {
     let config = utils::get_config();
     if config.headphone_keepalive_interval > 0 {
         info!("Starting headphone keepalive thread with interval of {}s", config.headphone_keepalive_interval);
-        if let Err(e) = headphone_keepalive_thread() {
+        if let Err(e) = headphone_keepalive_thread(config.headphone_keepalive_interval) {
             warn!("Failed to start headphone keepalive thread: {}", e);
         }
     }
@@ -96,7 +98,7 @@ async fn main() -> Result<()> {
     });
     
     // Main event loop
-    let ticker = tick(Duration::from_millis(100));
+    let ticker = tick(Duration::from_millis(50)); // Balanced timing for responsiveness without excessive CPU usage
     let state_update_rx = get_state_update_receiver();
     
     let mut last_known_state = AppState::Normal; // Initialize state correctly
@@ -170,6 +172,9 @@ async fn main() -> Result<()> {
 }
 
 async fn init_app(args: &Args) -> Result<()> {
+    // Store the configuration globally so other modules can access it
+    set_config(args);
+    
     // The lock file handling is now done in acquire_instance_lock()
     // which is called before this function
     
