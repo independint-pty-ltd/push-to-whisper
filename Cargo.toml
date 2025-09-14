@@ -63,7 +63,7 @@ parking_lot = "0.12"
 once_cell = "1.21"
 
 # These are not used in the new approach
-# dasp = { version = "0.11.0", features = ["signal"] }
+# dasp = { version = "0.3.3", features = ["signal"] }
 # dasp_interpolate = "0.11.0"
 # dasp_signal = "0.11.0"
 
