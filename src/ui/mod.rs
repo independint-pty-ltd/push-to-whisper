@@ -39,6 +39,23 @@ pub enum MenuAction {
     Quit,
 }
 
+/// Show a one-off toast message (Windows only). No-op on other platforms.
+#[allow(dead_code)]
+pub fn show_toast_message(title: &str, body: &str) {
+    #[cfg(target_os = "windows")]
+    {
+        use winrt_notification::{Toast, Duration as ToastDuration};
+        if let Err(e) = Toast::new(Toast::POWERSHELL_APP_ID)
+            .title(title)
+            .text1(body)
+            .duration(ToastDuration::Short)
+            .show()
+        {
+            debug!("Failed to show toast: {}", e);
+        }
+    }
+}
+
 // Thread-local storage for tray icon (since TrayIcon is not Send + Sync)
 thread_local! {
     static TRAY_ICON: RefCell<Option<TrayIcon>> = RefCell::new(None);
@@ -161,7 +178,7 @@ fn run_tray_icon_thread(icon_rx: Receiver<AppState>) -> Result<()> {
             update_tray_icon_internal(new_state);
         }
         
-        thread::sleep(Duration::from_millis(10));
+        thread::sleep(Duration::from_millis(5));
     }
 }
 
@@ -415,7 +432,7 @@ pub fn show_message_box(title: &str, message: &str, icon_type: u32) {
     
     unsafe {
         MessageBoxA(
-            0,
+            std::ptr::null_mut(),
             message_cstr.as_ptr() as *const _,  // Cast to the expected type
             title_cstr.as_ptr() as *const _,
             MB_OK | icon_type

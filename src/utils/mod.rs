@@ -24,6 +24,8 @@ pub struct Args {
     pub enable_debug_recording: bool,
     pub force_cpu: bool,
     pub beep_volume: f32,
+    pub transcription_priority: String,
+    pub hotkey: String,
 }
 
 // Global state
@@ -36,10 +38,13 @@ static CONFIG: once_cell::sync::Lazy<std::sync::Mutex<Option<Args>>> =
 // Valid model sizes
 pub const VALID_MODELS: [&str; 5] = ["tiny.en", "base.en", "small.en", "medium.en", "large"];
 pub const DEFAULT_MODEL: &str = "medium.en";
-pub const DEFAULT_LONG_PRESS_THRESHOLD: u64 = 50; // milliseconds - optimized for v0.3.1
+pub const DEFAULT_LONG_PRESS_THRESHOLD: u64 = 25; // milliseconds - optimized for v0.3.1 performance
 pub const DEFAULT_HEADPHONE_KEEPALIVE_INTERVAL: u64 = 30; // seconds
 pub const DEFAULT_ENABLE_DEBUG_RECORDING: bool = true; // enabled by default for troubleshooting
 pub const DEFAULT_BEEP_VOLUME: f32 = 0.3; // 30% volume by default
+pub const DEFAULT_TRANSCRIPTION_PRIORITY: &str = "low"; // low, normal, high - default to low for better system responsiveness
+/// Default activation hotkey: "right_alt" or "right_ctrl"
+pub const DEFAULT_HOTKEY: &str = "right_alt";
 
 fn is_another_instance_running() -> bool {
     // Get the current process ID
@@ -146,6 +151,8 @@ fn merge_config_with_defaults(existing_config: &str) -> String {
         ("enable_debug_recording", &DEFAULT_ENABLE_DEBUG_RECORDING.to_string(), "Debug recording (true/false)"),
         ("force_cpu", "false", "Force CPU mode (true/false)"),
         ("beep_volume", &DEFAULT_BEEP_VOLUME.to_string(), "Beep volume (0.0 to 1.0)"),
+        ("transcription_priority", DEFAULT_TRANSCRIPTION_PRIORITY, "Transcription thread priority (low, normal, high)"),
+        ("hotkey", DEFAULT_HOTKEY, "Activation hotkey (right_alt or right_ctrl)"),
     ];
     
     for (key, default_value, comment) in required_configs {
@@ -188,7 +195,7 @@ fn create_default_config_if_not_exists() -> Result<()> {
         }
     } else {
         info!("Creating default configuration file at {}", CONFIG_FILE_PATH);
-        let config_content = format!(
+            let config_content = format!(
             "# Push-to-Whisper Configuration File\n\
             # Edit this file to change default settings\n\
             # Command line arguments will override these settings\n\
@@ -221,12 +228,20 @@ fn create_default_config_if_not_exists() -> Result<()> {
             force_cpu = false\n\
             \n\
             # Beep volume (0.0 to 1.0)\n\
-            beep_volume = {}\n",
+            beep_volume = {}\n\
+            \n\
+            # Transcription thread priority (low, normal, high)\n\
+                transcription_priority = {}\n\
+                \n\
+                # Activation hotkey (right_alt or right_ctrl)\n\
+                hotkey = {}\n",
             DEFAULT_MODEL,
             DEFAULT_LONG_PRESS_THRESHOLD,
             DEFAULT_HEADPHONE_KEEPALIVE_INTERVAL,
             DEFAULT_ENABLE_DEBUG_RECORDING,
-            DEFAULT_BEEP_VOLUME
+            DEFAULT_BEEP_VOLUME,
+                DEFAULT_TRANSCRIPTION_PRIORITY,
+                DEFAULT_HOTKEY
         );
         
         fs::write(config_path, config_content)?;
@@ -251,6 +266,8 @@ fn read_config_file() -> Args {
     let mut enable_debug_recording = DEFAULT_ENABLE_DEBUG_RECORDING;
     let mut force_cpu = false;
     let mut beep_volume = DEFAULT_BEEP_VOLUME;
+    let mut transcription_priority = DEFAULT_TRANSCRIPTION_PRIORITY.to_string();
+    let mut hotkey = DEFAULT_HOTKEY.to_string();
     
     // Try to read config file
     if let Ok(mut file) = File::open(CONFIG_FILE_PATH) {
@@ -308,6 +325,21 @@ fn read_config_file() -> Args {
                                 beep_volume = val;
                             }
                         },
+                        "transcription_priority" => {
+                            if ["low", "normal", "high"].contains(&value) {
+                                transcription_priority = value.to_string();
+                            } else {
+                                error!("Invalid transcription priority in config: {}", value);
+                            }
+                        },
+                        "hotkey" => {
+                            let normalized = value.to_lowercase();
+                            if normalized == "right_alt" || normalized == "right_ctrl" {
+                                hotkey = normalized;
+                            } else {
+                                error!("Invalid hotkey in config: {} (use 'right_alt' or 'right_ctrl')", value);
+                            }
+                        },
                         _ => {
                             // Unknown key, ignore
                         }
@@ -327,6 +359,8 @@ fn read_config_file() -> Args {
         enable_debug_recording,
         force_cpu,
         beep_volume,
+        transcription_priority,
+        hotkey,
     }
 }
 
@@ -421,6 +455,35 @@ pub fn parse_args() -> Args {
                     i += 1;
                 }
             },
+            "--transcription-priority" | "--tp" => {
+                if let Some(value) = std::env::args().nth(i + 1) {
+                    if ["low", "normal", "high"].contains(&value.as_str()) {
+                        args.transcription_priority = value;
+                    } else {
+                        error!("Invalid transcription priority: {}", value);
+                        error!("Valid priorities: low, normal, high");
+                    }
+                    i += 2;
+                } else {
+                    error!("Missing value for --transcription-priority");
+                    i += 1;
+                }
+            },
+            "--hotkey" => {
+                if let Some(value) = std::env::args().nth(i + 1) {
+                    let normalized = value.to_lowercase();
+                    if normalized == "right_alt" || normalized == "right_ctrl" {
+                        args.hotkey = normalized;
+                    } else {
+                        error!("Invalid hotkey: {}", value);
+                        error!("Valid hotkeys: right_alt, right_ctrl");
+                    }
+                    i += 2;
+                } else {
+                    error!("Missing value for --hotkey");
+                    i += 1;
+                }
+            },
             _ => {
                 // Unknown argument, ignore
                 i += 1;
@@ -429,6 +492,11 @@ pub fn parse_args() -> Args {
     }
     
     args
+}
+
+/// Set the current configuration
+pub fn set_config(args: &Args) {
+    *CONFIG.lock().unwrap() = Some(args.clone());
 }
 
 /// Get the current configuration
@@ -447,6 +515,8 @@ pub fn get_config() -> Args {
             enable_debug_recording: DEFAULT_ENABLE_DEBUG_RECORDING,
             force_cpu: false,
             beep_volume: DEFAULT_BEEP_VOLUME,
+            transcription_priority: DEFAULT_TRANSCRIPTION_PRIORITY.to_string(),
+            hotkey: DEFAULT_HOTKEY.to_string(),
         }
     }
 }
@@ -489,7 +559,13 @@ pub fn save_config(args: &Args) -> Result<()> {
         force_cpu = {}\n\
         \n\
         # Beep volume (0.0 to 1.0)\n\
-        beep_volume = {}\n",
+        beep_volume = {}\n\
+        \n\
+        # Transcription thread priority (low, normal, high)\n\
+        transcription_priority = {}\n\
+        \n\
+        # Activation hotkey (right_alt or right_ctrl)\n\
+        hotkey = {}\n",
         !args.disable_beep,
         !args.disable_tray,
         !args.disable_visual,
@@ -498,7 +574,9 @@ pub fn save_config(args: &Args) -> Result<()> {
         args.headphone_keepalive_interval,
         args.enable_debug_recording,
         args.force_cpu,
-        args.beep_volume
+        args.beep_volume,
+        args.transcription_priority,
+        args.hotkey
     );
     
     // Write the config to the file

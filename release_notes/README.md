@@ -6,7 +6,9 @@ This directory contains all release notes and related documentation for Push-to-
 
 ### Current Releases
 
-- **[v0.3.1](v0.3.1.md)** - Latest stable release with overlay notifications and comprehensive cleanup
+- **[v0.3.3](v0.3.3.md)** - Dependency upgrades; adds RTX 50 series release builds
+- **[v0.3.2](v0.3.2.md)** - Stability for long-running use, configurable hotkey, 5-min auto-stop
+- **[v0.3.1](v0.3.1.md)** - Overlay notifications and comprehensive cleanup
 - **[v0.3.0](v0.3.0.md)** - Major UI improvements and system tray enhancements
 - **[v0.2.1](v0.2.1.md)** - Bug fixes and stability improvements
 

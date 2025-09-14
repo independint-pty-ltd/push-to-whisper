@@ -20,6 +20,7 @@ const SAMPLE_RATE: u32 = 16000;
 const CHANNELS: u16 = 1;
 const KEEP_HEADPHONES_ALIVE: bool = true;
 const HEADPHONE_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(30);
+const MAX_RECORDING_DURATION: Duration = Duration::from_secs(300); // 5 minutes hard limit per session
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)] // Configuration struct - fields may be used in future
@@ -43,7 +44,7 @@ impl Default for AudioConfig {
 
 // Global state
 static TRANSCRIBING: AtomicBool = AtomicBool::new(false);
-static AUDIO_BUFFER: Lazy<Mutex<Vec<f32>>> = Lazy::new(|| Mutex::new(Vec::with_capacity(SAMPLE_RATE as usize * 300)));
+static AUDIO_BUFFER: Lazy<Mutex<Vec<f32>>> = Lazy::new(|| Mutex::new(Vec::with_capacity(SAMPLE_RATE as usize * 300))); // 5 minutes buffer
 
 // Helper function to update activity time
 fn update_activity_time() {
@@ -116,6 +117,20 @@ pub fn start_recording() -> Result<()> {
     if beeps_enabled {
         let _ = play_beep_async(1000, 100); // Reduced duration to 100ms for snappier feel
     }
+    
+    // Spawn a guard to enforce maximum recording duration (5 minutes)
+    std::thread::spawn(|| {
+        std::thread::sleep(MAX_RECORDING_DURATION);
+        if RECORDING.load(Ordering::SeqCst) {
+            warn!("Maximum recording duration ({}s) reached; auto-stopping and transcribing current audio", MAX_RECORDING_DURATION.as_secs());
+            let _ = play_beep_async(1200, 120);
+            // Provide user visual feedback via tray
+            send_state_update(AppState::Transcribing);
+            if let Err(e) = stop_recording() {
+                error!("Auto-stop after max duration failed: {}", e);
+            }
+        }
+    });
     
     Ok(())
 }
@@ -204,18 +219,59 @@ pub fn stop_recording() -> Result<()> {
     // Set the atomic flag after sending the update
     TRANSCRIBING.store(true, Ordering::SeqCst);
     
-    // Process with Whisper
-    info!("Starting transcription with Whisper");
-    let transcription_result = process_transcription(audio_data);
-    info!("Transcription process completed with result: {:?}", transcription_result.is_ok());
+    // Process with Whisper in a separate thread - TRULY ASYNCHRONOUS
+    info!("Starting transcription with Whisper in background thread");
     
-    // Set Transcribing flag to false AFTER processing completes
-    TRANSCRIBING.store(false, Ordering::SeqCst);
+    // Clone the audio data for the background thread
+    let audio_data_clone = audio_data.clone();
+    thread::spawn(move || {
+        // Set lower thread priority to prevent system lag
+        #[cfg(target_os = "windows")]
+        {
+            use windows_sys::Win32::System::Threading::{GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_LOWEST, THREAD_PRIORITY_BELOW_NORMAL, THREAD_PRIORITY_NORMAL};
+            
+            // Get transcription priority from config
+            let config = crate::utils::get_config();
+            let priority = match config.transcription_priority.as_str() {
+                "low" => THREAD_PRIORITY_LOWEST,
+                "normal" => THREAD_PRIORITY_BELOW_NORMAL,
+                "high" => THREAD_PRIORITY_NORMAL,
+                _ => THREAD_PRIORITY_LOWEST, // Default to low
+            };
+            
+            unsafe {
+                SetThreadPriority(GetCurrentThread(), priority);
+            }
+            
+            info!("Set transcription thread priority to: {}", config.transcription_priority);
+        }
+        
+        #[cfg(target_os = "linux")]
+        {
+            // On Linux, we could use nice() or setpriority(), but it requires additional dependencies
+            // For now, we'll rely on the thread scheduler
+        }
+        
+        // Process transcription and handle completion asynchronously
+        let transcription_result = process_transcription(audio_data_clone);
+        
+        info!("Transcription process completed with result: {:?}", transcription_result.is_ok());
+        
+        // Set Transcribing flag to false AFTER processing completes
+        TRANSCRIBING.store(false, Ordering::SeqCst);
+        
+        // Send Normal state update AFTER transcription finishes (or fails)
+        send_state_update(AppState::Normal);
+        
+        // Log any errors but don't block the main thread
+        if let Err(e) = transcription_result {
+            error!("Transcription failed: {}", e);
+        }
+    });
     
-    // Send Normal state update AFTER transcription finishes (or fails)
-    send_state_update(AppState::Normal);
-    
-    transcription_result // Return the result of process_transcription
+    // Return immediately - don't wait for transcription to complete!
+    info!("Transcription started in background - returning control immediately");
+    Ok(())
 }
 
 // Helper function to process audio for Whisper
@@ -437,7 +493,7 @@ fn try_build_input_stream(device: &cpal::Device, config: &cpal::StreamConfig) ->
     debug!("Recording thread running...");
     // We need to keep the stream alive while recording
     while RECORDING.load(Ordering::SeqCst) {
-        thread::sleep(Duration::from_millis(10)); // Reduced from 100ms to 10ms for faster response
+        thread::sleep(Duration::from_millis(1)); // Reduced from 10ms to 1ms for faster response
     }
 
     // Log the final buffer size for debugging
@@ -459,20 +515,25 @@ pub fn play_beep(frequency: u32, _duration_ms: u64) -> Result<()> {
     Ok(())
 }
 
-pub fn headphone_keepalive_thread() -> Result<()> {
-    if !KEEP_HEADPHONES_ALIVE {
+pub fn headphone_keepalive_thread(interval_secs: u64) -> Result<()> {
+    if !KEEP_HEADPHONES_ALIVE || interval_secs == 0 {
         return Ok(());
     }
 
     let (_stream, stream_handle) = OutputStream::try_default()?;
     let sink = Sink::try_new(&stream_handle)?;
-    
+
+    let sleep_duration = Duration::from_secs(interval_secs);
     thread::spawn(move || {
         loop {
-            let source = SineWave::new(20.0); // Very low frequency
+            // Append a very short silent tone to tickle the device and keep it alive
+            let source = SineWave::new(20.0)
+                .take_duration(Duration::from_millis(50))
+                .amplify(0.0);
             sink.append(source);
+            // Wait for the tiny buffer to play out, then sleep for the configured interval
             sink.sleep_until_end();
-            thread::sleep(HEADPHONE_KEEPALIVE_INTERVAL);
+            thread::sleep(sleep_duration);
         }
     });
 

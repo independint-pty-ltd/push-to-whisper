@@ -7,7 +7,7 @@ use std::process::Command;
 use eframe::egui;
 
 use crate::utils::{Args, get_config, save_config, VALID_MODELS, DEFAULT_MODEL, DEFAULT_LONG_PRESS_THRESHOLD, 
-                  DEFAULT_HEADPHONE_KEEPALIVE_INTERVAL, DEFAULT_ENABLE_DEBUG_RECORDING, DEFAULT_BEEP_VOLUME, request_exit};
+                  DEFAULT_HEADPHONE_KEEPALIVE_INTERVAL, DEFAULT_ENABLE_DEBUG_RECORDING, DEFAULT_BEEP_VOLUME, DEFAULT_TRANSCRIPTION_PRIORITY, request_exit};
 
 // Global state for the settings window
 static SETTINGS_WINDOW_OPEN: Lazy<Mutex<bool>> = Lazy::new(|| Mutex::new(false));
@@ -73,6 +73,19 @@ impl eframe::App for SettingsApp {
                         self.check_for_changes();
                     }
                     
+                    ui.add_space(5.0);
+                    ui.label("🎛️ Activation hotkey:");
+                    let old_hotkey = self.settings.hotkey.clone();
+                    egui::ComboBox::from_label("Select hotkey")
+                        .selected_text(match self.settings.hotkey.as_str() { "right_ctrl" => "Right Ctrl", _ => "Right Alt" })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut self.settings.hotkey, "right_alt".to_string(), "Right Alt (default)");
+                            ui.selectable_value(&mut self.settings.hotkey, "right_ctrl".to_string(), "Right Ctrl");
+                        });
+                    if old_hotkey != self.settings.hotkey {
+                        self.check_for_changes();
+                    }
+
                     ui.add_space(5.0);
                     ui.label("🎧 Headphone keepalive interval (s):");
                     ui.label("Prevents wireless headphones from disconnecting (0 = disabled)");
@@ -198,6 +211,8 @@ impl SettingsApp {
             enable_debug_recording: DEFAULT_ENABLE_DEBUG_RECORDING,
             force_cpu: false,
             beep_volume: DEFAULT_BEEP_VOLUME,
+            transcription_priority: DEFAULT_TRANSCRIPTION_PRIORITY.to_string(),
+            hotkey: crate::utils::DEFAULT_HOTKEY.to_string(),
         };
         self.dirty = true;
         self.restart_required = true;
@@ -259,7 +274,7 @@ pub fn open_settings() -> Result<()> {
         eframe::run_native(
             "Push to Whisper Settings",
             options,
-            Box::new(|_cc| Box::new(SettingsApp::new())),
+            Box::new(|_cc| Ok(Box::new(SettingsApp::new()))),
         ).expect("Failed to start settings window");
         
         // When the window is closed, set is_open back to false

@@ -72,12 +72,12 @@ fn create_overlay_window(state: AppState, should_stop: Arc<AtomicBool>) -> Resul
             cbClsExtra: 0,
             cbWndExtra: 0,
             hInstance: GetModuleHandleW(std::ptr::null()),
-            hIcon: 0,
-            hCursor: LoadCursorW(0, IDC_ARROW),
+            hIcon: std::ptr::null_mut(),
+            hCursor: LoadCursorW(std::ptr::null_mut(), IDC_ARROW),
             hbrBackground: (COLOR_WINDOW + 1) as _,
             lpszMenuName: std::ptr::null(),
             lpszClassName: class_name_wide.as_ptr(),
-            hIconSm: 0,
+            hIconSm: std::ptr::null_mut(),
         };
         
         if RegisterClassExW(&wc) == 0 {
@@ -104,13 +104,13 @@ fn create_overlay_window(state: AppState, should_stop: Arc<AtomicBool>) -> Resul
             window_y,
             window_width,
             window_height,
-            0,
-            0,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
             GetModuleHandleW(std::ptr::null()),
             std::ptr::null(),
         );
         
-        if hwnd == 0 {
+        if hwnd == std::ptr::null_mut() {
             return Err("Failed to create window".into());
         }
         
@@ -126,7 +126,7 @@ fn create_overlay_window(state: AppState, should_stop: Arc<AtomicBool>) -> Resul
         
         // Message loop
         let mut msg = MSG {
-            hwnd: 0,
+            hwnd: std::ptr::null_mut(),
             message: 0,
             wParam: 0,
             lParam: 0,
@@ -135,7 +135,7 @@ fn create_overlay_window(state: AppState, should_stop: Arc<AtomicBool>) -> Resul
         };
         
         while !should_stop.load(Ordering::SeqCst) {
-            if PeekMessageW(&mut msg, 0, 0, 0, PM_REMOVE) != 0 {
+            if PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_REMOVE) != 0 {
                 if msg.message == WM_QUIT {
                     break;
                 }
@@ -159,7 +159,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
     match msg {
         WM_PAINT => {
             let mut ps = PAINTSTRUCT {
-                hdc: 0,
+                hdc: std::ptr::null_mut(),
                 fErase: 0,
                 rcPaint: RECT { left: 0, top: 0, right: 0, bottom: 0 },
                 fRestore: 0,

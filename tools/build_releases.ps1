@@ -31,36 +31,31 @@ if ($CurrentBranch -match $VersionPattern) {
 }
 # --- End Dynamic Version Extraction ---
 
-# --- Update Cargo.toml Version ---
-Write-Host "Updating Cargo.toml version to '$Version'..."
+# --- Update Cargo.toml [package] version only ---
+Write-Host "Updating Cargo.toml [package] version to '$Version'..."
 $CargoTomlPath = "Cargo.toml"
-
-if (-not (Test-Path -Path $CargoTomlPath)) {
-    Write-Error "Cargo.toml not found at $CargoTomlPath"
-    exit 1
-}
+if (-not (Test-Path -Path $CargoTomlPath)) { Write-Error "Cargo.toml not found at $CargoTomlPath"; exit 1 }
 
 try {
-    # Read the current Cargo.toml content
-    $CargoContent = Get-Content -Path $CargoTomlPath -Raw
-    
-    # Update the version line (matches version = "any.version.here")
-    $VersionPattern = '(version\s*=\s*")[^"]+(")'
-    $NewVersionString = "`${1}$Version`${2}"
-    
-    if ($CargoContent -match $VersionPattern) {
-        $UpdatedContent = $CargoContent -replace $VersionPattern, $NewVersionString
-        Set-Content -Path $CargoTomlPath -Value $UpdatedContent -NoNewline
-        Write-Host "Successfully updated Cargo.toml version to '$Version'" -ForegroundColor Green
-    } else {
-        Write-Warning "Could not find version field in Cargo.toml. Please check the file format."
+    $lines = Get-Content -Path $CargoTomlPath -Encoding UTF8
+    $inPackage = $false
+    $result = @()
+    foreach ($line in $lines) {
+        if ($line -match '^\s*\[package\]\s*$') { $inPackage = $true }
+        elseif ($inPackage -and $line -match '^\s*\[') { $inPackage = $false }
+
+        if ($inPackage -and $line -match '^\s*version\s*=\s*"[^"]+"') {
+            $result += ('version = "' + $Version + '"')
+        } else {
+            $result += $line
+        }
     }
+    Set-Content -Path $CargoTomlPath -Value $result -Encoding UTF8
+    Write-Host "Updated [package].version to $Version" -ForegroundColor Green
+} catch {
+    Write-Error "Failed to update Cargo.toml [package] version: $($_.Exception.Message)"; exit 1
 }
-catch {
-    Write-Error "Failed to update Cargo.toml version: $($_.Exception.Message)"
-    exit 1
-}
-# --- End Cargo.toml Version Update ---
+# --- End update ---
 
 $BaseExeName = "push-to-whisper.exe"
 $ReadmeSource = "README.md"
@@ -72,6 +67,7 @@ $Targets = @{
     "GTX900series"  = "52"  # Maxwell generation
     "RTX30series"   = "86"  # Ampere generation
     "RTX40series"   = "89"  # Ada Lovelace generation
+    "RTX50series"   = "90"  # Blackwell/RTX 50 generation
     # Add more targets here if needed (e.g., "cpu" = "")
 }
 

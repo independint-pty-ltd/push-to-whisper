@@ -1,4 +1,4 @@
-Push-to-Whisper v0.1.0
+Push-to-Whisper v0.3.3
 ======================
 
 A fast, private, and efficient push-to-speak transcription tool using OpenAI's Whisper model.
@@ -7,9 +7,10 @@ QUICK START
 ----------
 1. Double-click push-to-whisper.exe to run
 2. The application will appear in your system tray
-3. Hold Right Control key to record speech
+3. Hold Right Alt (default) to record speech (configurable: Right Alt or Right Ctrl)
 4. Release the key to transcribe at your cursor position
 5. Double-press ESC to exit
+6. Recording is automatically stopped at 5 minutes and transcribed
 
 FIRST RUN
 ---------
@@ -56,6 +57,8 @@ headphone_keepalive_interval = 30
 enable_debug_recording = false
 
 # Force CPU mode (true/false)
+# Activation hotkey (right_alt or right_ctrl)
+hotkey = right_alt
 # Set to true to disable GPU acceleration and use CPU only
 force_cpu = false
 

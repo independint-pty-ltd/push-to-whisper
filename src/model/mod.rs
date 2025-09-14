@@ -1,5 +1,5 @@
 use anyhow::{Result, Context};
-use log::info;
+use log::{info, warn};
 use std::path::PathBuf;
 use std::fs;
 use std::io::{Write};
@@ -31,6 +31,29 @@ pub fn get_model_path(model_size: &str) -> PathBuf {
 pub async fn ensure_model_exists(model_size: &str) -> Result<PathBuf> {
     let model_path = get_model_path(model_size);
     
+    // If model exists, do a quick integrity check on size to catch truncated/mismatched files
+    if model_path.exists() {
+        if let Some(min_expected) = expected_min_size_bytes(model_size) {
+            if let Ok(metadata) = fs::metadata(&model_path) {
+                let actual = metadata.len();
+                if actual < min_expected {
+                    warn!(
+                        "Model at {:?} seems too small ({} bytes < {} bytes), re-downloading...",
+                        model_path, actual, min_expected
+                    );
+                    let _ = fs::remove_file(&model_path);
+                } else {
+                    info!("Using existing model at {:?}", model_path);
+                    return Ok(model_path);
+                }
+            }
+        } else {
+            // Unknown model size, just trust existing file
+            info!("Using existing model at {:?}", model_path);
+            return Ok(model_path);
+        }
+    }
+
     if !model_path.exists() {
         info!("Model not found at {:?}, downloading...", model_path);
         
@@ -41,11 +64,22 @@ pub async fn ensure_model_exists(model_size: &str) -> Result<PathBuf> {
         }
         
         download_model(model_size, &model_path).await?;
-    } else {
-        info!("Using existing model at {:?}", model_path);
     }
     
     Ok(model_path)
+}
+
+fn expected_min_size_bytes(model_size: &str) -> Option<u64> {
+    // Conservative minimum sizes for unquantized ggml models
+    // Values are intentionally below typical sizes to reduce false positives
+    match model_size {
+        "tiny.en" => Some(70 * 1024 * 1024),        // ~75 MB typical
+        "base.en" => Some(135 * 1024 * 1024),       // ~142 MB typical
+        "small.en" => Some(440 * 1024 * 1024),      // ~466 MB typical
+        "medium.en" => Some(1_350_000_000),         // ~1.5 GB typical
+        "large" => Some(2_700_000_000),             // ~2.9 GB typical
+        _ => None,
+    }
 }
 
 async fn download_model(model_size: &str, path: &PathBuf) -> Result<()> {
@@ -60,7 +94,9 @@ async fn download_model(model_size: &str, path: &PathBuf) -> Result<()> {
         .unwrap()
         .progress_chars("#>-"));
     
-    let mut file = std::fs::File::create(path)?;
+    // Download atomically: write to a temporary file, then rename on success
+    let tmp_path = path.with_extension("part");
+    let mut file = std::fs::File::create(&tmp_path)?;
     let mut stream = response.bytes_stream();
     let mut downloaded: u64 = 0;
     
@@ -72,6 +108,8 @@ async fn download_model(model_size: &str, path: &PathBuf) -> Result<()> {
     }
     
     pb.finish_with_message("Download complete");
+    // Finalize by renaming the temp file into place
+    fs::rename(&tmp_path, path)?;
     Ok(())
 }
 
