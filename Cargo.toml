@@ -1,6 +1,6 @@
 [package]
 name = "push-to-whisper"
-version = "0.3.2"
+version = "0.3.3"
 edition = "2021"
 authors = ["Your Name <your.email@example.com>"]
 description = "A fast, private push-to-speak transcription tool using OpenAI's Whisper model"
@@ -29,15 +29,15 @@ path = "tools/create_release.rs"
 # Audio recording and processing
 cpal = "0.15"
 hound = "3.5.1"
-ringbuf = "0.3.3"
+ringbuf = "0.4.8"
 
 # Whisper speech recognition
-whisper-rs = { version = "0.14.2", default-features = false }
+whisper-rs = { version = "0.14.4", default-features = false }
 
 # Keyboard and clipboard operations
 rdev = "0.5"
 clipboard = "0.5"
-enigo = "0.1"
+enigo = "0.5.0"
 keyboard-types = "0.7.0"
 
 # Audio feedback
@@ -45,9 +45,9 @@ rodio = "0.17"
 
 # UI and system tray
 # tray-item = { version = "0.10.0", features = [] }
-tray-icon = "0.20.0"
-eframe = "0.26.0"
-egui = "0.26.0"
+tray-icon = "0.21.1"
+eframe = "0.32.1"
+egui = "0.32.1"
 native-windows-gui = "1.0.13"
 
 # Process control
@@ -55,9 +55,9 @@ ctrlc = "3.4.1"
 
 # General utilities
 anyhow = "1.0"
-thiserror = "1.0"
+thiserror = "2.0.16"
 log = "0.4"
-simple_logger = "4.3"
+simple_logger = "5.0.0"
 crossbeam-channel = "0.5.14"
 parking_lot = "0.12"
 once_cell = "1.21"
@@ -69,21 +69,22 @@ once_cell = "1.21"
 
 # New dependencies
 clipboard-win = "2.2"
-indicatif = "0.17"
-reqwest = { version = "0.11", features = ["json", "stream"] }
+indicatif = "0.18"
+reqwest = { version = "0.12", features = ["json", "stream"] }
 serde = { version = "1.0", features = ["derive"] }
-winreg = "0.52"
+winreg = "0.55.0"
 futures-util = "0.3"
 tokio = { version = "1.0", features = ["full"] }
 winit = "0.30.9"
 
 # Add windows-sys under the correct target section
 [target.'cfg(target_os = "windows")'.dependencies]
-windows-sys = { version = "0.48", features = [
+windows-sys = { version = "0.60.2", features = [
     "Win32_UI_WindowsAndMessaging", 
     "Win32_Graphics_Gdi", 
     "Win32_Foundation",
-    "Win32_System_LibraryLoader"
+    "Win32_System_LibraryLoader",
+    "Win32_System_Threading"
 ] }
 winrt-notification = "0.5"
 

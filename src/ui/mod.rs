@@ -432,7 +432,7 @@ pub fn show_message_box(title: &str, message: &str, icon_type: u32) {
     
     unsafe {
         MessageBoxA(
-            0,
+            std::ptr::null_mut(),
             message_cstr.as_ptr() as *const _,  // Cast to the expected type
             title_cstr.as_ptr() as *const _,
             MB_OK | icon_type

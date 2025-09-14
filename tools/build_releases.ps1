@@ -72,6 +72,7 @@ $Targets = @{
     "GTX900series"  = "52"  # Maxwell generation
     "RTX30series"   = "86"  # Ampere generation
     "RTX40series"   = "89"  # Ada Lovelace generation
+    "RTX50series"   = "90"  # Blackwell/RTX 50 generation
     # Add more targets here if needed (e.g., "cpu" = "")
 }
 

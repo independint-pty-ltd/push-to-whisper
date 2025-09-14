@@ -1,4 +1,4 @@
-Push-to-Whisper v0.3.2
+Push-to-Whisper v0.3.3
 ======================
 
 A fast, private, and efficient push-to-speak transcription tool using OpenAI's Whisper model.

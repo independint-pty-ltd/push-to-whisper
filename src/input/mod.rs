@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clipboard::{ClipboardContext, ClipboardProvider};
-use enigo::{Enigo, Key, KeyboardControllable};
+use enigo::{Enigo, Key, Settings, Keyboard, Direction};
 use log::{error, info, warn};
 use rdev::{Event, EventType, Key as RdevKey};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -191,11 +191,12 @@ pub fn type_text(text: &str) -> Result<()> {
                     info!("Text copied to clipboard");
                     
                     // Simulate Ctrl+V to paste
-                    let mut enigo = Enigo::default();
+                    let settings = Settings::default();
+                    let mut enigo = Enigo::new(&settings).unwrap_or_else(|_| Enigo::new(&Settings::default()).expect("Failed to init Enigo"));
                     thread::sleep(Duration::from_millis(5)); // Reduced from 50ms to 5ms for faster response
-                    enigo.key_down(Key::Control);
-                    enigo.key_click(Key::Layout('v'));
-                    enigo.key_up(Key::Control);
+                    enigo.key(Key::Control, Direction::Press).ok();
+                    enigo.text("v");
+                    enigo.key(Key::Control, Direction::Release).ok();
                     info!("Paste attempted with keyboard shortcut");
                 },
                 Err(e) => {
@@ -213,10 +214,11 @@ pub fn type_text(text: &str) -> Result<()> {
                         return Ok(());
                     }
                     
-                    let mut enigo = Enigo::default();
-                    enigo.key_down(Key::Control);
-                    enigo.key_click(Key::Layout('v'));
-                    enigo.key_up(Key::Control);
+                    let settings = Settings::default();
+                    let mut enigo = Enigo::new(&settings).unwrap();
+                    enigo.key(Key::Control, Direction::Press).ok();
+                    enigo.text("v");
+                    enigo.key(Key::Control, Direction::Release).ok();
                 },
                 Err(e) => {
                     warn!("Failed to access clipboard: {:?}", e);
@@ -226,9 +228,10 @@ pub fn type_text(text: &str) -> Result<()> {
         },
         TextInsertMethod::Typing => {
             // Type each character individually
-            let mut enigo = Enigo::default();
+            let settings = Settings::default();
+            let mut enigo = Enigo::new(&settings).unwrap();
             for c in text.chars() {
-                enigo.key_click(Key::Layout(c));
+                enigo.text(&c.to_string());
                 thread::sleep(Duration::from_millis(1)); // Reduced from 2ms to 1ms for faster typing
             }
         }

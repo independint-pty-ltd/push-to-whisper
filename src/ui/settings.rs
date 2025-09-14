@@ -274,7 +274,7 @@ pub fn open_settings() -> Result<()> {
         eframe::run_native(
             "Push to Whisper Settings",
             options,
-            Box::new(|_cc| Box::new(SettingsApp::new())),
+            Box::new(|_cc| Ok(Box::new(SettingsApp::new()))),
         ).expect("Failed to start settings window");
         
         // When the window is closed, set is_open back to false
