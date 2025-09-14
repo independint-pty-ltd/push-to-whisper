@@ -1,11 +1,23 @@
 use anyhow::Result;
 use clipboard::{ClipboardContext, ClipboardProvider};
-use enigo::{Enigo, Key, Settings, Keyboard, Direction};
+use enigo::{Enigo, Settings, Keyboard};
+#[cfg(not(target_os = "windows"))]
+use enigo::{Key, Direction};
 use log::{error, info, warn};
 use rdev::{Event, EventType, Key as RdevKey};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+#[cfg(target_os = "windows")]
+use std::sync::atomic::AtomicIsize;
 use std::time::{Instant, SystemTime, UNIX_EPOCH, Duration};
 use std::thread;
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VK_CONTROL, VK_V};
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, SetForegroundWindow};
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::Foundation::HWND;
+#[cfg(target_os = "windows")]
+static LAST_FG_HWND: AtomicIsize = AtomicIsize::new(0);
 
 // use crate::error::AppError; // Currently unused
 use crate::state::send_state_update;
@@ -79,6 +91,15 @@ pub fn handle_keyboard_event(event: Event) -> Result<()> {
 
             if key == configured_hotkey && !KEY_HANDLED.load(Ordering::SeqCst) {
                 KEY_HANDLED.store(true, Ordering::SeqCst);
+                // Remember current foreground window to restore focus later
+                #[cfg(target_os = "windows")]
+                {
+                    let hwnd = unsafe { GetForegroundWindow() };
+                    let hwnd_val = hwnd as isize;
+                    if hwnd_val != 0 {
+                        LAST_FG_HWND.store(hwnd_val, Ordering::SeqCst);
+                    }
+                }
                 
                 if !RECORDING.load(Ordering::SeqCst) && !HOTKEY_DOWN.load(Ordering::SeqCst) {
                     info!("Hotkey pressed - waiting for long press threshold");
@@ -190,13 +211,16 @@ pub fn type_text(text: &str) -> Result<()> {
                     
                     info!("Text copied to clipboard");
                     
-                    // Simulate Ctrl+V to paste
-                    let settings = Settings::default();
-                    let mut enigo = Enigo::new(&settings).unwrap_or_else(|_| Enigo::new(&Settings::default()).expect("Failed to init Enigo"));
-                    thread::sleep(Duration::from_millis(5)); // Reduced from 50ms to 5ms for faster response
-                    enigo.key(Key::Control, Direction::Press).ok();
-                    enigo.text("v");
-                    enigo.key(Key::Control, Direction::Release).ok();
+                    // Give the target app a brief moment before pasting
+                    #[cfg(target_os = "windows")]
+                    {
+                        let hwnd_val = LAST_FG_HWND.load(Ordering::SeqCst);
+                        if hwnd_val != 0 {
+                            unsafe { SetForegroundWindow(hwnd_val as HWND); }
+                        }
+                    }
+                    thread::sleep(Duration::from_millis(50));
+                    simulate_ctrl_v();
                     info!("Paste attempted with keyboard shortcut");
                 },
                 Err(e) => {
@@ -214,11 +238,15 @@ pub fn type_text(text: &str) -> Result<()> {
                         return Ok(());
                     }
                     
-                    let settings = Settings::default();
-                    let mut enigo = Enigo::new(&settings).unwrap();
-                    enigo.key(Key::Control, Direction::Press).ok();
-                    enigo.text("v");
-                    enigo.key(Key::Control, Direction::Release).ok();
+                    #[cfg(target_os = "windows")]
+                    {
+                        let hwnd_val = LAST_FG_HWND.load(Ordering::SeqCst);
+                        if hwnd_val != 0 {
+                            unsafe { SetForegroundWindow(hwnd_val as HWND); }
+                        }
+                    }
+                    thread::sleep(Duration::from_millis(50));
+                    simulate_ctrl_v();
                 },
                 Err(e) => {
                     warn!("Failed to access clipboard: {:?}", e);
@@ -229,9 +257,9 @@ pub fn type_text(text: &str) -> Result<()> {
         TextInsertMethod::Typing => {
             // Type each character individually
             let settings = Settings::default();
-            let mut enigo = Enigo::new(&settings).unwrap();
+            let mut enigo = Enigo::new(&settings).unwrap_or_else(|_| Enigo::new(&Settings::default()).expect("Failed to init Enigo"));
             for c in text.chars() {
-                enigo.text(&c.to_string());
+                let _ = enigo.text(&c.to_string());
                 thread::sleep(Duration::from_millis(1)); // Reduced from 2ms to 1ms for faster typing
             }
         }
@@ -241,6 +269,50 @@ pub fn type_text(text: &str) -> Result<()> {
     info!("✅ TEXT PROCESSED ✅");
     
     Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn simulate_ctrl_v() {
+    unsafe {
+        let mut inputs: [INPUT; 4] = [
+            INPUT {
+                r#type: INPUT_KEYBOARD,
+                Anonymous: INPUT_0 {
+                    ki: KEYBDINPUT { wVk: VK_CONTROL as u16, wScan: 0, dwFlags: 0, time: 0, dwExtraInfo: 0 },
+                },
+            },
+            INPUT {
+                r#type: INPUT_KEYBOARD,
+                Anonymous: INPUT_0 {
+                    ki: KEYBDINPUT { wVk: VK_V as u16, wScan: 0, dwFlags: 0, time: 0, dwExtraInfo: 0 },
+                },
+            },
+            INPUT {
+                r#type: INPUT_KEYBOARD,
+                Anonymous: INPUT_0 {
+                    ki: KEYBDINPUT { wVk: VK_V as u16, wScan: 0, dwFlags: KEYEVENTF_KEYUP, time: 0, dwExtraInfo: 0 },
+                },
+            },
+            INPUT {
+                r#type: INPUT_KEYBOARD,
+                Anonymous: INPUT_0 {
+                    ki: KEYBDINPUT { wVk: VK_CONTROL as u16, wScan: 0, dwFlags: KEYEVENTF_KEYUP, time: 0, dwExtraInfo: 0 },
+                },
+            },
+        ];
+
+        let _ = SendInput(inputs.len() as u32, inputs.as_mut_ptr(), std::mem::size_of::<INPUT>() as i32);
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn simulate_ctrl_v() {
+    let settings = Settings::default();
+    if let Ok(mut enigo) = Enigo::new(&settings) {
+        let _ = enigo.key(Key::Control, Direction::Press);
+        let _ = enigo.text("v");
+        let _ = enigo.key(Key::Control, Direction::Release);
+    }
 }
 
 pub fn start_keyboard_listener() -> Result<()> {

@@ -1,4 +1,4 @@
-[package]
+﻿[package]
 name = "push-to-whisper"
 version = "0.3.3"
 edition = "2021"
@@ -81,6 +81,7 @@ winit = "0.30.9"
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { version = "0.60.2", features = [
     "Win32_UI_WindowsAndMessaging", 
+    "Win32_UI_Input_KeyboardAndMouse",
     "Win32_Graphics_Gdi", 
     "Win32_Foundation",
     "Win32_System_LibraryLoader",
