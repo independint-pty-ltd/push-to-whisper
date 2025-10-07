@@ -121,9 +121,13 @@ Push-to-Whisper eliminates the friction between thought and text by providing:
 
 #### 4.3 Hardware Acceleration
 - **R4.3.1**: Auto-detect CUDA-capable GPUs
-- **R4.3.2**: Support CUDA versions 10.x, 11.x, 12.x
+- **R4.3.2**: Support CUDA versions 10.x, 11.x, 12.x, 13.x
 - **R4.3.3**: Graceful CPU fallback on GPU failure
 - **R4.3.4**: Optimize CPU performance using SIMD
+
+Notes on CUDA 13:
+- CUDA 13 toolchains remove offline compilation support for compute capability < 7.5. Release builds targeting Maxwell/Pascal should be produced with CUDA 12.9 (or earlier) if needed.
+- Runtime detection now includes CUDA 13 default library names and typical install paths on Windows and Linux.
 - **R4.3.5**: Allow manual GPU/CPU mode selection
 
 ### 5. Reliability Requirements

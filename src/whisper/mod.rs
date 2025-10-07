@@ -54,6 +54,7 @@ fn check_cuda_availability() -> bool {
             
             // Check common CUDA library locations on Windows
             let cuda_paths = [
+                // CUDA 11.x
                 "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v11.0\\bin\\cudart64_110.dll",
                 "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v11.1\\bin\\cudart64_110.dll",
                 "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v11.2\\bin\\cudart64_110.dll",
@@ -63,9 +64,20 @@ fn check_cuda_availability() -> bool {
                 "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v11.6\\bin\\cudart64_110.dll",
                 "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v11.7\\bin\\cudart64_110.dll",
                 "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v11.8\\bin\\cudart64_110.dll",
+                // CUDA 12.x
                 "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.0\\bin\\cudart64_12.dll",
                 "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.1\\bin\\cudart64_12.dll",
                 "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.2\\bin\\cudart64_12.dll",
+                "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.3\\bin\\cudart64_12.dll",
+                "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin\\cudart64_12.dll",
+                "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.5\\bin\\cudart64_12.dll",
+                "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\bin\\cudart64_12.dll",
+                "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.7\\bin\\cudart64_12.dll",
+                "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.8\\bin\\cudart64_12.dll",
+                "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.9\\bin\\cudart64_12.dll",
+                // CUDA 13.x
+                "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v13.0\\bin\\cudart64_13.dll",
+                "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v13.1\\bin\\cudart64_13.dll",
             ];
             
             for path in cuda_paths {
@@ -82,7 +94,9 @@ fn check_cuda_availability() -> bool {
             
             // Check common CUDA library locations on Linux
             let cuda_paths = [
+                // Generic symlink
                 "/usr/local/cuda/lib64/libcudart.so",
+                // CUDA 11.x
                 "/usr/local/cuda-11.0/lib64/libcudart.so",
                 "/usr/local/cuda-11.1/lib64/libcudart.so",
                 "/usr/local/cuda-11.2/lib64/libcudart.so",
@@ -92,9 +106,20 @@ fn check_cuda_availability() -> bool {
                 "/usr/local/cuda-11.6/lib64/libcudart.so",
                 "/usr/local/cuda-11.7/lib64/libcudart.so",
                 "/usr/local/cuda-11.8/lib64/libcudart.so",
+                // CUDA 12.x
                 "/usr/local/cuda-12.0/lib64/libcudart.so",
                 "/usr/local/cuda-12.1/lib64/libcudart.so",
                 "/usr/local/cuda-12.2/lib64/libcudart.so",
+                "/usr/local/cuda-12.3/lib64/libcudart.so",
+                "/usr/local/cuda-12.4/lib64/libcudart.so",
+                "/usr/local/cuda-12.5/lib64/libcudart.so",
+                "/usr/local/cuda-12.6/lib64/libcudart.so",
+                "/usr/local/cuda-12.7/lib64/libcudart.so",
+                "/usr/local/cuda-12.8/lib64/libcudart.so",
+                "/usr/local/cuda-12.9/lib64/libcudart.so",
+                // CUDA 13.x
+                "/usr/local/cuda-13.0/lib64/libcudart.so",
+                "/usr/local/cuda-13.1/lib64/libcudart.so",
             ];
             
             for path in cuda_paths {

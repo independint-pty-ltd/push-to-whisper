@@ -64,12 +64,14 @@ $ReleaseDir = "release" # Final directory for zipped releases
 
 # Define target architectures (GPU Series Name -> CUDA Compute Capability)
 $Targets = @{
-    "GTX900series"  = "52"  # Maxwell generation
+    "Universal"     = "86;89;90"  # Multi-architecture build (works on all supported GPUs)
     "RTX30series"   = "86"  # Ampere generation
     "RTX40series"   = "89"  # Ada Lovelace generation
     "RTX50series"   = "90"  # Blackwell/RTX 50 generation
-    # Add more targets here if needed (e.g., "cpu" = "")
 }
+
+# Note: CUDA 13 removes offline compilation support for compute < 7.5.
+# We skip packaging for Maxwell/Pascal when building with CUDA 13 toolchain.
 
 # --- Script Logic ---
 
@@ -92,6 +94,15 @@ foreach ($TargetGpuName in $Targets.Keys) {
     # Set the environment variable for CUDA architecture
     $env:CUDA_ARCH = $CudaArch
     Write-Host "Set env:CUDA_ARCH=$env:CUDA_ARCH"
+
+    # Check if this is a multi-architecture build
+    if ($CudaArch -match ";") {
+        $env:CUDA_MULTI_ARCH = "1"
+        Write-Host "Set env:CUDA_MULTI_ARCH=1 (Multi-architecture build enabled)"
+    } else {
+        # Make sure it's not set for single-arch builds
+        Remove-Item Env:\CUDA_MULTI_ARCH -ErrorAction SilentlyContinue
+    }
 
     # Run the release build with the cuda feature
     cargo build --release --features cuda
@@ -120,12 +131,58 @@ foreach ($TargetGpuName in $Targets.Keys) {
     Write-Host "Copying executable to staging area..." -ForegroundColor Cyan
     Copy-Item -Path $ExePath -Destination $StagingDir -Force
 
+    # Copy CUDA runtime DLLs if CUDA_PATH is set
+    if ($env:CUDA_PATH) {
+        Write-Host "Looking for CUDA runtime DLLs to bundle..." -ForegroundColor Cyan
+        $CudaBinPath = Join-Path $env:CUDA_PATH "bin"
+        
+        # Determine which DLL version to look for based on CUDA path
+        $CudaDlls = @()
+        if ($env:CUDA_PATH -match "v13\.") {
+            $CudaDlls = @("cudart64_13.dll", "cublas64_13.dll", "cublasLt64_13.dll")
+        } elseif ($env:CUDA_PATH -match "v12\.") {
+            $CudaDlls = @("cudart64_12.dll", "cublas64_12.dll", "cublasLt64_12.dll")
+        } elseif ($env:CUDA_PATH -match "v11\.") {
+            $CudaDlls = @("cudart64_110.dll", "cublas64_11.dll", "cublasLt64_11.dll")
+        }
+        
+        $CopiedDlls = 0
+        foreach ($dll in $CudaDlls) {
+            $dllPath = Join-Path $CudaBinPath $dll
+            if (Test-Path -Path $dllPath) {
+                Copy-Item -Path $dllPath -Destination $StagingDir -Force
+                Write-Host "  Bundled: $dll" -ForegroundColor Green
+                $CopiedDlls++
+            } else {
+                Write-Warning "  CUDA DLL not found: $dll (checked: $dllPath)"
+            }
+        }
+        
+        if ($CopiedDlls -eq 0) {
+            Write-Warning "No CUDA DLLs were bundled. Users will need CUDA installed to run this binary."
+        } else {
+            Write-Host "Successfully bundled $CopiedDlls CUDA runtime DLL(s)" -ForegroundColor Green
+        }
+    } else {
+        Write-Warning "CUDA_PATH not set. CUDA DLLs will not be bundled."
+        Write-Warning "Users will need CUDA installed to run this binary."
+    }
+
     # Copy and rename README
     if (Test-Path -Path $ReadmeSource) {
         Write-Host "Copying and renaming README to staging area..." -ForegroundColor Cyan
         Copy-Item -Path $ReadmeSource -Destination (Join-Path $StagingDir $ReadmeTarget) -Force
     } else {
         Write-Warning "$ReadmeSource not found. README will not be included in the zip."
+    }
+
+    # Copy CUDA license file if DLLs were bundled
+    if ($CopiedDlls -gt 0) {
+        $CudaLicensePath = "CUDA_LICENSES.txt"
+        if (Test-Path -Path $CudaLicensePath) {
+            Write-Host "Copying CUDA license file..." -ForegroundColor Cyan
+            Copy-Item -Path $CudaLicensePath -Destination $StagingDir -Force
+        }
     }
 
     # Create the zip archive using 7-Zip
@@ -148,8 +205,9 @@ foreach ($TargetGpuName in $Targets.Keys) {
 
     Write-Host "Completed packaging for $TargetGpuName (CUDA Arch: $CudaArch) -> $FinalZipPath" -ForegroundColor Green
 
-    # Clear the environment variable for the next iteration
+    # Clear the environment variables for the next iteration
     Remove-Item Env:\CUDA_ARCH -ErrorAction SilentlyContinue
+    Remove-Item Env:\CUDA_MULTI_ARCH -ErrorAction SilentlyContinue
 }
 
 Write-Host "`nAll release builds completed and zipped to '$ReleaseDir' directory." -ForegroundColor Magenta
