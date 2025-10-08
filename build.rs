@@ -213,10 +213,23 @@ fn main() {
     } else {
         println!("cargo:warning=CUDA_PATH not set, will attempt to use system CUDA if available");
         
-        // Check common CUDA installation paths
+        // Check common CUDA installation paths (add CUDA 13.x)
         let common_paths = [
+            // CUDA 13.x
+            "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.1",
+            "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.0",
+            // CUDA 12.x
+            "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.9",
             "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.8",
+            "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.7",
+            "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6",
+            "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5",
+            "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4",
+            "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.3",
+            "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.2",
+            "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.1",
             "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.0",
+            // CUDA 11.x
             "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v11.8",
             "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v11.7",
             "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v11.6",

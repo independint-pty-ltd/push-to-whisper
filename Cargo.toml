@@ -1,6 +1,6 @@
 ﻿[package]
 name = "push-to-whisper"
-version = "0.3.3"
+version = "0.4.0"
 edition = "2021"
 authors = ["Your Name <your.email@example.com>"]
 description = "A fast, private push-to-speak transcription tool using OpenAI's Whisper model"

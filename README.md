@@ -12,7 +12,7 @@ A fast, private, and efficient push-to-speak transcription tool that uses OpenAI
 - **Zero File Storage**: All audio processing happens in-memory
 - **Cursor Position Insertion**: Transcribed text appears at your cursor location
 - **Complete Privacy**: 100% local processing, no data sent to external servers
-- **GPU Acceleration**: CUDA support for faster transcription when available
+- **GPU Acceleration**: CUDA support for faster transcription when available (CUDA 11–13)
 - **Automatic CPU Fallback**: Gracefully falls back to CPU if CUDA is unavailable or fails
 - **Clipboard Preservation**: Automatically saves and restores clipboard content
 - **Multiple Text Insertion Methods**: Compatible with various applications
@@ -142,7 +142,9 @@ Models with ".en" suffix are optimized for English only. The "large" model suppo
 - Windows 10 or Windows 11
 - Microphone or audio input device
 - 4GB RAM minimum (8GB recommended)
-- For GPU acceleration: NVIDIA GPU with CUDA support (see below)
+- For GPU acceleration: NVIDIA GPU with compatible drivers
+
+**Note:** CUDA runtime libraries are bundled with the release packages, so you **do not need to install the CUDA Toolkit** separately. Simply ensure you have the latest NVIDIA GPU drivers installed.
 
 ### GPU Support
 
@@ -162,6 +164,19 @@ Notes:
 - If no compatible GPU is found, it gracefully falls back to CPU mode
 - CPU mode works on all systems but is significantly slower
 - For best performance, we recommend RTX 2000 series or newer
+
+### Choosing the Right Release Build
+
+The releases page offers multiple builds optimized for different GPU series:
+
+- **Universal** (Recommended): Works with RTX 30/40/50 series GPUs in a single binary
+- **RTX30series**: Optimized specifically for RTX 30xx GPUs (smaller download)
+- **RTX40series**: Optimized specifically for RTX 40xx GPUs (smaller download)
+- **RTX50series**: Optimized specifically for RTX 50xx GPUs (smaller download)
+
+All builds include bundled CUDA runtime DLLs, so no separate CUDA installation is required. Simply download the build matching your GPU (or use Universal if unsure) and run it.
+
+**For older GPUs (GTX 900/1000/2000 series):** Contact us or build from source with CUDA 12.9 or earlier, as CUDA 13.x has dropped support for compute capabilities below 7.5.
 
 ### GPU Acceleration Options
 
@@ -188,6 +203,7 @@ force_cpu = false
 - **Performance issues**: Try a smaller model with `--model-size tiny.en` or `--model-size base.en`
 - **Text insertion problems**: Make sure your cursor is in a text field
 - **Non-English languages**: Use the large model with `--model-size large` for non-English transcription
+- **Missing DLL errors** (e.g., "cudart64_12.dll not found"): Download a release package from the Releases page - these include all necessary CUDA DLLs bundled
 - **CUDA/GPU issues**: If you experience crashes or errors related to GPU acceleration, use `--force-cpu` to run in CPU-only mode
 
 ## Building from Source (For Developers)
@@ -201,8 +217,9 @@ force_cpu = false
    Or download from [rustup.rs](https://rustup.rs/)
 
 2. For GPU support (optional):
-   - Install [CUDA Toolkit 11.7+](https://developer.nvidia.com/cuda-toolkit)
-   - The project includes CUDA configuration in `.cargo/config.toml` for building with support for multiple GPU architectures (Maxwell through Ada)
+   - Install [CUDA Toolkit 12.x or 13.x](https://developer.nvidia.com/cuda-toolkit)
+   - Set `CUDA_PATH` environment variable to your CUDA installation path
+   - The build script will automatically bundle the necessary CUDA runtime DLLs
 
 ### Build Steps
 
@@ -236,7 +253,7 @@ This configuration ensures compatibility with:
 - Ampere GPUs (RTX 3050, 3060, 3070, 3080) - compute 8.6/8.7
 - Ada GPUs (RTX 4060, 4070, 4080, 4090) - compute 8.9
 
-The configuration uses CUDA 12.x format with compute/sm pairs and includes PTX for forward compatibility. You can modify these values if you:
+The configuration uses CUDA 12.x style compute/sm pairs and includes PTX for forward compatibility. When using CUDA 13 toolchains, note that offline compilation for compute capability < 7.5 is no longer supported; use CUDA 12.9 to target Maxwell/Pascal if required. You can modify these values if you:
 - Need to support different GPU architectures
 - Want to optimize for specific GPU models
 - Need to reduce build time by targeting fewer architectures

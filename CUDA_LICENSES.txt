@@ -1,0 +1,38 @@
+NVIDIA CUDA RUNTIME LIBRARIES
+==============================
+
+This software package includes NVIDIA CUDA Runtime libraries which are
+redistributed under the terms of the NVIDIA CUDA Toolkit End User License
+Agreement (EULA).
+
+The following NVIDIA CUDA libraries may be included:
+- cudart64_*.dll   - CUDA Runtime Library
+- cublas64_*.dll   - CUDA Basic Linear Algebra Subroutines
+- cublasLt64_*.dll - CUDA BLAS LightTable Library
+
+These libraries are copyright NVIDIA Corporation and are redistributed
+with permission under the terms of the CUDA Toolkit EULA.
+
+Full NVIDIA CUDA Toolkit License:
+https://docs.nvidia.com/cuda/eula/index.html
+
+Redistribution Rights (Summary):
+--------------------------------
+NVIDIA grants permission to redistribute certain runtime components of the
+CUDA Toolkit, provided that:
+
+1. The runtime libraries are distributed in binary form only
+2. The libraries are not modified
+3. Proper attribution to NVIDIA is provided
+4. The distribution includes this license notice
+5. The redistribution is in support of GPU-accelerated applications
+
+These libraries are provided "AS IS" without warranty of any kind.
+
+For complete license terms, please visit:
+https://docs.nvidia.com/cuda/eula/
+
+NVIDIA Corporation
+2788 San Tomas Expressway
+Santa Clara, CA 95051
+
